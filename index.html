@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>SysMon — System Monitor</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --green: #3fb950;
+    --yellow: #d29922;
+    --orange: #e3742f;
+    --red: #f85149;
+    --blue: #58a6ff;
+    --purple: #bc8cff;
+    --cyan: #39d353;
+    --accent: #1f6feb;
+    --power-bg: #1a1206;
+    --power-border: #5a3e00;
+    --power-text: #ffa726;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; line-height: 1.5; }
+
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 24px; display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 18px; font-weight: 700; color: var(--blue); letter-spacing: -0.3px; }
+  header .meta { color: var(--muted); font-size: 12px; }
+  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; margin-left: auto; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  .refresh-info { color: var(--muted); font-size: 11px; }
+
+  /* ── Power banner ── */
+  #power-banner {
+    background: var(--power-bg);
+    border-bottom: 1px solid var(--power-border);
+    padding: 10px 24px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  #power-banner .pw-title {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .8px; color: var(--power-text); flex-shrink: 0;
+  }
+  .pw-stat { display: flex; flex-direction: column; align-items: center; }
+  .pw-stat .pw-val { font-size: 22px; font-weight: 700; color: var(--power-text); line-height: 1; }
+  .pw-stat .pw-lbl { font-size: 10px; color: var(--muted); margin-top: 2px; white-space: nowrap; }
+
+  .pw-divider { width: 1px; height: 36px; background: var(--power-border); flex-shrink: 0; }
+
+  /* rate editor */
+  #rate-form { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+  #rate-form label { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  #rate-input {
+    width: 72px; background: #0d1117; border: 1px solid var(--power-border);
+    color: var(--power-text); padding: 3px 6px; border-radius: 4px;
+    font-size: 13px; font-family: inherit;
+  }
+  #rate-input:focus { outline: none; border-color: var(--power-text); }
+  #rate-save {
+    background: var(--power-border); color: var(--power-text);
+    border: none; border-radius: 4px; padding: 3px 10px;
+    font-size: 11px; font-weight: 600; cursor: pointer;
+  }
+  #rate-save:hover { background: #7a5500; }
+  #rate-feedback { font-size: 11px; color: var(--green); }
+
+  #power-unavail { font-size: 12px; color: var(--muted); font-style: italic; }
+
+  main { padding: 16px 20px; display: grid; gap: 16px; }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  @media(max-width:900px) { .grid-2,.grid-3 { grid-template-columns: 1fr; } }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+  .card-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
+  .card-title span { font-size: 14px; }
+
+  /* Gauge */
+  .gauge-wrap { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .gauge-label { width: 80px; color: var(--muted); font-size: 12px; flex-shrink: 0; }
+  .gauge-bar { flex: 1; height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
+  .gauge-fill { height: 100%; border-radius: 4px; transition: width .6s ease, background .4s; }
+  .gauge-val { width: 38px; text-align: right; font-variant-numeric: tabular-nums; font-size: 12px; }
+  .g-low { background: var(--green); }
+  .g-med { background: var(--yellow); }
+  .g-high { background: var(--orange); }
+  .g-crit { background: var(--red); }
+
+  /* Big stat */
+  .big-stat { font-size: 36px; font-weight: 700; color: var(--blue); line-height: 1; }
+  .big-unit { font-size: 14px; color: var(--muted); margin-top: 2px; }
+  .stat-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--border); }
+  .stat-row:last-child { border-bottom: none; }
+  .stat-row .k { color: var(--muted); }
+  .stat-row .v { font-variant-numeric: tabular-nums; }
+
+  /* Core grid */
+  #core-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(54px, 1fr)); gap: 6px; }
+  .core-box { background: var(--border); border-radius: 6px; padding: 6px 4px; text-align: center; font-size: 11px; }
+  .core-box .core-n { color: var(--muted); margin-bottom: 2px; }
+  .core-box .core-v { font-weight: 700; }
+
+  /* Process table */
+  .tbl-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 10px; letter-spacing: .5px; padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+  td { padding: 5px 8px; border-bottom: 1px solid #1c2128; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #1c2128; }
+  .status-running { color: var(--green); }
+  .status-sleeping { color: var(--muted); }
+  .status-zombie { color: var(--red); }
+  .svc-active { color: var(--green); }
+  .svc-inactive { color: var(--muted); }
+  .svc-failed { color: var(--red); }
+
+  /* Temp */
+  .temp-chip { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; margin: 2px; }
+
+  /* Network */
+  .nic-name { color: var(--blue); font-weight: 600; margin-bottom: 4px; margin-top: 10px; }
+  .nic-name:first-child { margin-top: 0; }
+
+  .badge { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; }
+  .badge-blue { background: #1f3a5f; color: var(--blue); }
+  .badge-green { background: #1a3a2a; color: var(--green); }
+  .badge-red { background: #3a1a1a; color: var(--red); }
+
+  .uptime-val { color: var(--cyan); font-size: 20px; font-weight: 600; }
+
+  #last-update { transition: color .3s; }
+  .flash { color: var(--green) !important; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⚡ SysMon</h1>
+  <div>
+    <div class="meta" id="hostname">—</div>
+    <div class="meta" id="platform-info">—</div>
+  </div>
+  <div style="margin-left:auto; display:flex; align-items:center; gap:10px;">
+    <div class="refresh-info">Auto-refresh <strong>3s</strong> &nbsp; <span id="last-update" style="color:var(--muted)">—</span></div>
+    <div class="live-dot"></div>
+  </div>
+</header>
+
+<!-- ── Power banner ── -->
+<div id="power-banner">
+  <div class="pw-title">⚡ Power</div>
+
+  <div id="power-live">
+    <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;">
+      <div class="pw-stat"><div class="pw-val" id="pw-watts">—</div><div class="pw-lbl">Watts now</div></div>
+      <div class="pw-divider"></div>
+      <div class="pw-stat"><div class="pw-val" id="pw-hour">—</div><div class="pw-lbl">€ / hour</div></div>
+      <div class="pw-stat"><div class="pw-val" id="pw-day">—</div><div class="pw-lbl">€ / day</div></div>
+      <div class="pw-stat"><div class="pw-val" id="pw-month">—</div><div class="pw-lbl">€ / month</div></div>
+      <div class="pw-stat"><div class="pw-val" id="pw-year">—</div><div class="pw-lbl">€ / year</div></div>
+    </div>
+  </div>
+
+  <span id="power-unavail" style="display:none;">Watts unavailable — RAPL permissions may need fixing (run setup_rapl_permissions.sh with sudo)</span>
+
+  <!-- Rate editor -->
+  <div id="rate-form">
+    <label for="rate-input">Rate (€/kWh):</label>
+    <input id="rate-input" type="number" step="0.01" min="0.01" value="0.35"/>
+    <button id="rate-save" onclick="saveRate()">Save</button>
+    <span id="rate-feedback"></span>
+  </div>
+</div>
+
+<main>
+
+  <!-- Row 1: Uptime / CPU summary / Memory summary -->
+  <div class="grid-3">
+    <div class="card">
+      <div class="card-title"><span>🕐</span> System</div>
+      <div class="stat-row"><span class="k">Hostname</span><span class="v" id="s-hostname">—</span></div>
+      <div class="stat-row"><span class="k">Uptime</span><span class="v uptime-val" id="s-uptime">—</span></div>
+      <div class="stat-row"><span class="k">Load avg (1/5/15m)</span><span class="v" id="s-load">—</span></div>
+      <div class="stat-row"><span class="k">CPU cores</span><span class="v" id="s-cores">—</span></div>
+      <div class="stat-row"><span class="k">Freq (current)</span><span class="v" id="s-freq">—</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span>🖥️</span> CPU Overall</div>
+      <div style="display:flex;gap:16px;align-items:flex-end;margin-bottom:12px;">
+        <div><div class="big-stat" id="cpu-big">—</div><div class="big-unit">% utilisation</div></div>
+      </div>
+      <div class="gauge-wrap">
+        <div class="gauge-label">CPU</div>
+        <div class="gauge-bar"><div class="gauge-fill" id="cpu-bar" style="width:0%"></div></div>
+        <div class="gauge-val" id="cpu-val">—</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span>🧠</span> Memory</div>
+      <div style="display:flex;gap:16px;align-items:flex-end;margin-bottom:12px;">
+        <div><div class="big-stat" id="mem-big">—</div><div class="big-unit">% used</div></div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:4px;" id="mem-detail">—</div>
+      </div>
+      <div class="gauge-wrap">
+        <div class="gauge-label">RAM</div>
+        <div class="gauge-bar"><div class="gauge-fill" id="mem-bar" style="width:0%"></div></div>
+        <div class="gauge-val" id="mem-val">—</div>
+      </div>
+      <div class="gauge-wrap">
+        <div class="gauge-label">Swap</div>
+        <div class="gauge-bar"><div class="gauge-fill" id="swap-bar" style="width:0%"></div></div>
+        <div class="gauge-val" id="swap-val">—</div>
+      </div>
+      <div class="stat-row" style="margin-top:8px;"><span class="k">Buffers</span><span class="v" id="mem-buf">—</span></div>
+      <div class="stat-row"><span class="k">Cached</span><span class="v" id="mem-cached">—</span></div>
+    </div>
+  </div>
+
+  <!-- Row 2: Per-core CPU -->
+  <div class="card">
+    <div class="card-title"><span>⚙️</span> Per-Core CPU Usage</div>
+    <div id="core-grid"></div>
+  </div>
+
+  <!-- Row 3: Disks + Temps + Battery -->
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title"><span>💾</span> Disk Usage</div>
+      <div id="disks-wrap"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span>🌡️</span> Temperatures &amp; Battery</div>
+      <div id="temps-wrap">No sensor data available.</div>
+      <div id="battery-wrap" style="margin-top:12px;display:none;">
+        <div class="card-title"><span>🔋</span> Battery</div>
+        <div id="battery-detail"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 4: Network -->
+  <div class="card">
+    <div class="card-title"><span>🌐</span> Network I/O</div>
+    <div id="net-wrap"></div>
+  </div>
+
+  <!-- Row 5: Services -->
+  <div class="card">
+    <div class="card-title"><span>🔧</span> Systemd Services</div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Unit</th><th>Load</th><th>Active</th><th>Sub</th><th>Description</th></tr></thead>
+        <tbody id="svc-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Row 6: Processes -->
+  <div class="card">
+    <div class="card-title"><span>📋</span> Top Processes (by CPU)</div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>PID</th><th>Name</th><th>User</th><th>Status</th><th>CPU%</th><th>Mem%</th><th>Threads</th><th>Started</th></tr></thead>
+        <tbody id="proc-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+
+<script>
+const fmt = (bytes) => {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes/1024).toFixed(1) + ' KB';
+  if (bytes < 1073741824) return (bytes/1048576).toFixed(1) + ' MB';
+  return (bytes/1073741824).toFixed(2) + ' GB';
+};
+
+const gColor = (pct) => {
+  if (pct < 50) return 'g-low';
+  if (pct < 75) return 'g-med';
+  if (pct < 90) return 'g-high';
+  return 'g-crit';
+};
+
+const coreColor = (pct) => {
+  if (pct < 50) return 'var(--green)';
+  if (pct < 75) return 'var(--yellow)';
+  if (pct < 90) return 'var(--orange)';
+  return 'var(--red)';
+};
+
+function setGauge(barId, valId, pct) {
+  const bar = document.getElementById(barId);
+  const val = document.getElementById(valId);
+  bar.style.width = pct + '%';
+  bar.className = 'gauge-fill ' + gColor(pct);
+  val.textContent = pct.toFixed(1) + '%';
+}
+
+// ── Power banner update ────────────────────────────────────────────────────────
+function updatePower(pw) {
+  if (!pw || pw.watts === null || pw.watts === undefined) {
+    document.getElementById('power-live').style.display = 'none';
+    document.getElementById('power-unavail').style.display = 'inline';
+    return;
+  }
+  document.getElementById('power-live').style.display = 'block';
+  document.getElementById('power-unavail').style.display = 'none';
+
+  document.getElementById('pw-watts').textContent = pw.watts.toFixed(1) + ' W';
+
+  const c = pw.cost || {};
+  document.getElementById('pw-hour').textContent  = c.per_hour  !== undefined ? '€ ' + c.per_hour.toFixed(4)  : '—';
+  document.getElementById('pw-day').textContent   = c.per_day   !== undefined ? '€ ' + c.per_day.toFixed(3)   : '—';
+  document.getElementById('pw-month').textContent = c.per_month !== undefined ? '€ ' + c.per_month.toFixed(2) : '—';
+  document.getElementById('pw-year').textContent  = c.per_year  !== undefined ? '€ ' + c.per_year.toFixed(2)  : '—';
+
+  // Keep the rate input in sync (if user hasn't focused it)
+  const inp = document.getElementById('rate-input');
+  if (document.activeElement !== inp) {
+    inp.value = pw.rate_eur_per_kwh;
+  }
+}
+
+// ── Rate save ─────────────────────────────────────────────────────────────────
+async function saveRate() {
+  const val = parseFloat(document.getElementById('rate-input').value);
+  if (isNaN(val) || val <= 0) {
+    showFeedback('Invalid rate', true);
+    return;
+  }
+  try {
+    const r = await fetch('/api/power-config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({rate_eur_per_kwh: val}),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      showFeedback('✓ Saved');
+    } else {
+      showFeedback('Error: ' + d.error, true);
+    }
+  } catch(e) {
+    showFeedback('Network error', true);
+  }
+}
+
+let _feedbackTimer = null;
+function showFeedback(msg, isErr=false) {
+  const el = document.getElementById('rate-feedback');
+  el.textContent = msg;
+  el.style.color = isErr ? 'var(--red)' : 'var(--green)';
+  clearTimeout(_feedbackTimer);
+  _feedbackTimer = setTimeout(() => { el.textContent = ''; }, 3000);
+}
+
+// ── Main update ───────────────────────────────────────────────────────────────
+function update(d) {
+  // Header
+  document.getElementById('hostname').textContent = d.hostname;
+  document.getElementById('platform-info').textContent = d.platform;
+  document.getElementById('s-hostname').textContent = d.hostname;
+  document.getElementById('s-uptime').textContent = d.uptime;
+  document.getElementById('s-load').textContent = d.cpu.load_avg.map(v=>v.toFixed(2)).join(' / ');
+  document.getElementById('s-cores').textContent = `${d.cpu.cores_physical} physical / ${d.cpu.cores_logical} logical`;
+  document.getElementById('s-freq').textContent = d.cpu.freq_mhz.current ? d.cpu.freq_mhz.current.toFixed(0) + ' MHz' : '—';
+
+  // Power banner
+  updatePower(d.power);
+
+  // CPU
+  document.getElementById('cpu-big').textContent = d.cpu.percent.toFixed(1);
+  setGauge('cpu-bar', 'cpu-val', d.cpu.percent);
+
+  // Memory
+  document.getElementById('mem-big').textContent = d.memory.percent.toFixed(1);
+  document.getElementById('mem-detail').textContent = `${fmt(d.memory.used)} / ${fmt(d.memory.total)}`;
+  setGauge('mem-bar', 'mem-val', d.memory.percent);
+  setGauge('swap-bar', 'swap-val', d.swap.percent);
+  document.getElementById('mem-buf').textContent = fmt(d.memory.buffers || 0);
+  document.getElementById('mem-cached').textContent = fmt(d.memory.cached || 0);
+
+  // Per-core
+  const cg = document.getElementById('core-grid');
+  cg.innerHTML = d.cpu.per_core.map((p, i) => `
+    <div class="core-box">
+      <div class="core-n">C${i}</div>
+      <div class="core-v" style="color:${coreColor(p)}">${p.toFixed(0)}%</div>
+    </div>`).join('');
+
+  // Disks
+  const dw = document.getElementById('disks-wrap');
+  dw.innerHTML = d.disks.map(disk => `
+    <div style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+        <span style="color:var(--blue);font-size:12px;font-weight:600;">${disk.mountpoint}</span>
+        <span class="badge badge-blue">${disk.fstype}</span>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">${disk.device}</div>
+      <div class="gauge-wrap" style="margin-bottom:2px;">
+        <div class="gauge-bar"><div class="gauge-fill ${gColor(disk.percent)}" style="width:${disk.percent}%"></div></div>
+        <div class="gauge-val">${disk.percent.toFixed(1)}%</div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);">${fmt(disk.used)} used / ${fmt(disk.total)} total — ${fmt(disk.free)} free</div>
+    </div>`).join('');
+
+  // Temperatures
+  const tw = document.getElementById('temps-wrap');
+  if (Object.keys(d.temperatures).length === 0) {
+    tw.innerHTML = '<span style="color:var(--muted);font-size:12px;">No temperature sensors found.</span>';
+  } else {
+    tw.innerHTML = Object.entries(d.temperatures).map(([name, entries]) => `
+      <div style="margin-bottom:8px;">
+        <div style="color:var(--muted);font-size:11px;margin-bottom:4px;">${name}</div>
+        ${entries.map(e => {
+          const c = e.current >= (e.critical||100)*0.9 ? 'var(--red)' : e.current >= (e.high||80)*0.9 ? 'var(--orange)' : 'var(--green)';
+          return `<span class="temp-chip" style="background:#1c2128;color:${c};">${e.label||'sensor'}: ${e.current}°C${e.high ? ' / '+e.high+'°' : ''}</span>`;
+        }).join('')}
+      </div>`).join('');
+  }
+
+  // Battery
+  if (d.battery) {
+    document.getElementById('battery-wrap').style.display = 'block';
+    const b = d.battery;
+    const secsleft = b.secsleft > 0 ? ` (${Math.floor(b.secsleft/3600)}h ${Math.floor((b.secsleft%3600)/60)}m)` : '';
+    document.getElementById('battery-detail').innerHTML = `
+      <div class="gauge-wrap">
+        <div class="gauge-label">Battery</div>
+        <div class="gauge-bar"><div class="gauge-fill ${gColor(100-b.percent)}" style="width:${b.percent}%;background:${b.percent>20?'var(--green)':'var(--red)'}"></div></div>
+        <div class="gauge-val">${b.percent.toFixed(0)}%</div>
+      </div>
+      <div style="font-size:12px;color:var(--muted);">${b.power_plugged ? '🔌 Plugged in' : '🔋 On battery'+secsleft}</div>`;
+  }
+
+  // Network
+  const nw = document.getElementById('net-wrap');
+  nw.innerHTML = Object.entries(d.network).map(([nic, v]) => `
+    <div style="margin-bottom:10px;">
+      <div class="nic-name">${nic}</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:12px;">
+        <div><span style="color:var(--muted)">↑ Sent</span><br/><strong>${fmt(v.bytes_sent)}</strong></div>
+        <div><span style="color:var(--muted)">↓ Recv</span><br/><strong>${fmt(v.bytes_recv)}</strong></div>
+        <div><span style="color:var(--muted)">Packets ↑/↓</span><br/><strong>${v.packets_sent} / ${v.packets_recv}</strong></div>
+      </div>
+      ${v.errin||v.errout ? `<div style="color:var(--red);font-size:11px;margin-top:2px;">Errors in:${v.errin} out:${v.errout}</div>` : ''}
+    </div>`).join('<hr style="border:none;border-top:1px solid var(--border);margin:6px 0;">');
+
+  // Services
+  const sb = document.getElementById('svc-tbody');
+  sb.innerHTML = d.services.slice(0, 100).map(s => {
+    const cls = s.active === 'active' ? 'svc-active' : s.active === 'failed' ? 'svc-failed' : 'svc-inactive';
+    return `<tr>
+      <td style="font-family:monospace;font-size:11px;">${s.unit}</td>
+      <td><span class="badge badge-blue">${s.load}</span></td>
+      <td class="${cls}">${s.active}</td>
+      <td style="color:var(--muted)">${s.sub}</td>
+      <td style="color:var(--muted);max-width:300px;overflow:hidden;text-overflow:ellipsis;">${s.desc}</td>
+    </tr>`;
+  }).join('');
+
+  // Processes
+  const pb = document.getElementById('proc-tbody');
+  pb.innerHTML = d.processes.map(p => {
+    const cls = p.status === 'running' ? 'status-running' : p.status === 'zombie' ? 'status-zombie' : 'status-sleeping';
+    const cpuColor = p.cpu > 50 ? 'var(--red)' : p.cpu > 20 ? 'var(--orange)' : 'var(--text)';
+    return `<tr>
+      <td style="color:var(--muted)">${p.pid}</td>
+      <td style="font-weight:600">${p.name}</td>
+      <td style="color:var(--muted)">${p.user||'—'}</td>
+      <td class="${cls}">${p.status}</td>
+      <td style="color:${cpuColor};font-weight:600">${p.cpu.toFixed(1)}%</td>
+      <td>${p.mem.toFixed(2)}%</td>
+      <td style="color:var(--muted)">${p.threads}</td>
+      <td style="color:var(--muted)">${p.started}</td>
+    </tr>`;
+  }).join('');
+
+  // Flash last update
+  const lu = document.getElementById('last-update');
+  lu.textContent = new Date().toLocaleTimeString();
+  lu.classList.add('flash');
+  setTimeout(() => lu.classList.remove('flash'), 500);
+}
+
+async function fetchStats() {
+  try {
+    const r = await fetch('/api/stats');
+    const d = await r.json();
+    update(d);
+  } catch(e) {
+    console.error('Fetch error', e);
+  }
+}
+
+fetchStats();
+setInterval(fetchStats, 3000);
+</script>
+</body>
+</html>

@@ -5,12 +5,13 @@ import json
 import time
 import socket
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 import psutil
 import os
 import platform
 import datetime
+import subprocess
 
 ROOT = Path(__file__).parent
 
@@ -18,6 +19,12 @@ ROOT = Path(__file__).parent
 _power_lock = threading.Lock()
 _power_config = {"rate_eur_per_kwh": 0.35}   # German avg; user-editable
 _power_cache  = {"watts": None, "source": "unavailable", "ts": 0}
+_win_batt_lock = threading.Lock()
+_win_batt_state = {
+    "full_charge_mwh": None,
+    "last_percent": None,
+    "last_ts": None,
+}
 
 # ─── Network throughput state ──────────────────────────────────────────────────
 _net_prev_lock = threading.Lock()
@@ -79,11 +86,156 @@ def _sample_watts(interval=1.0):
     return round(total_w, 1), "rapl"
 
 
+def _sample_watts_windows():
+    """Return Windows power in watts.
+
+    Priority:
+    1) BatteryStatus.DischargeRate (mW) from WMI.
+    2) Battery runtime + capacity estimate when discharging.
+    3) Battery percent delta over time estimate when discharging.
+
+    Returns (None, ...) when no reliable telemetry exists.
+    """
+    # 1) Try battery discharge rate via WMI (available on many laptops).
+    try:
+        cmd = [
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            "(Get-CimInstance -Namespace root/wmi -ClassName BatteryStatus "
+            "-ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty DischargeRate)"
+        ]
+        out = subprocess.check_output(cmd, text=True, timeout=1.5).strip()
+        if out:
+            mw = int(float(out))
+            if mw > 0:
+                return round(mw / 1000.0, 1), "battery_discharge_rate"
+    except Exception:
+        pass
+
+    b = None
+    try:
+        b = psutil.sensors_battery()
+    except Exception:
+        b = None
+
+    if not b or b.power_plugged:
+        return None, "no_windows_power_sensor"
+
+    # 2) Runtime-based estimate if full-charge capacity and secsleft are available.
+    full_mwh = _get_windows_full_charge_capacity_mwh()
+    if full_mwh and b.secsleft not in (None, psutil.POWER_TIME_UNLIMITED, psutil.POWER_TIME_UNKNOWN) and b.secsleft > 0:
+        remaining_wh = (full_mwh / 1000.0) * (max(0.0, min(float(b.percent), 100.0)) / 100.0)
+        watts = remaining_wh / (b.secsleft / 3600.0)
+        if watts > 0:
+            return round(watts, 1), "battery_runtime_estimate"
+
+    # 3) Delta-based fallback from battery percent change over time.
+    with _win_batt_lock:
+        now = time.time()
+        prev_percent = _win_batt_state["last_percent"]
+        prev_ts = _win_batt_state["last_ts"]
+        _win_batt_state["last_percent"] = float(b.percent)
+        _win_batt_state["last_ts"] = now
+
+    if full_mwh and prev_percent is not None and prev_ts is not None:
+        dt_h = max((time.time() - prev_ts) / 3600.0, 0.0)
+        drop_pct = max(0.0, float(prev_percent) - float(b.percent))
+        if dt_h > 0 and drop_pct > 0:
+            wh_used = (full_mwh / 1000.0) * (drop_pct / 100.0)
+            watts = wh_used / dt_h
+            if watts > 0:
+                return round(watts, 1), "battery_delta_estimate"
+
+    return None, "no_windows_power_sensor"
+
+
+def _get_windows_full_charge_capacity_mwh():
+    """Return total battery full-charge capacity (mWh) from WMI, cached."""
+    with _win_batt_lock:
+        cached = _win_batt_state.get("full_charge_mwh")
+    if cached is not None:
+        return cached
+
+    cap_mwh = None
+    try:
+        cmd = [
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            "(Get-CimInstance -Namespace root/wmi -ClassName BatteryFullChargedCapacity "
+            "-ErrorAction SilentlyContinue | Measure-Object -Property FullChargedCapacity -Sum).Sum"
+        ]
+        out = subprocess.check_output(cmd, text=True, timeout=1.5).strip()
+        if out:
+            val = int(float(out))
+            if val > 0:
+                cap_mwh = val
+    except Exception:
+        cap_mwh = None
+
+    with _win_batt_lock:
+        _win_batt_state["full_charge_mwh"] = cap_mwh
+    return cap_mwh
+
+
+def _get_windows_temperatures():
+    """Return psutil-compatible temperature payload using Windows WMI when available."""
+    temps = {}
+    try:
+        cmd = [
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            "Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature "
+            "-ErrorAction SilentlyContinue | Select-Object InstanceName,CurrentTemperature "
+            "| ConvertTo-Json -Compress"
+        ]
+        out = subprocess.check_output(cmd, text=True, timeout=1.5).strip()
+        if not out:
+            return temps
+
+        payload = json.loads(out)
+        rows = payload if isinstance(payload, list) else [payload]
+        entries = []
+        for row in rows:
+            cur = row.get("CurrentTemperature")
+            if cur is None:
+                continue
+            # WMI temp is in tenths of Kelvin.
+            celsius = (float(cur) / 10.0) - 273.15
+            if celsius < -30 or celsius > 130:
+                continue
+            entries.append({
+                "label": row.get("InstanceName") or "acpi",
+                "current": round(celsius, 1),
+                "high": None,
+                "critical": None,
+            })
+
+        if entries:
+            temps["acpi"] = entries
+    except Exception:
+        pass
+    return temps
+
+
+def _estimate_windows_cpu_temp(cpu_percent):
+    """Return a conservative estimated CPU temp when hardware sensors are unavailable."""
+    pct = max(0.0, min(float(cpu_percent or 0.0), 100.0))
+    # Typical idle/load envelope for consumer desktops and laptops.
+    est = 36.0 + (pct * 0.40)   # 36C idle -> ~76C at 100%
+    return round(est, 1)
+
+
 def _power_sampler_loop():
     """Background thread: update _power_cache every ~3 s."""
     while True:
         try:
-            watts, source = _sample_watts(interval=2.0)
+            if platform.system() == "Windows":
+                watts, source = _sample_watts_windows()
+            else:
+                watts, source = _sample_watts(interval=2.0)
             with _power_lock:
                 _power_cache["watts"]  = watts
                 _power_cache["source"] = source
@@ -115,9 +267,21 @@ def get_power_stats():
     }
 
 
+def _safe_getloadavg():
+    """Return [1m, 5m, 15m] load averages or a neutral fallback on Windows."""
+    if hasattr(os, "getloadavg"):
+        try:
+            return list(os.getloadavg())
+        except Exception:
+            pass
+    return [0.0, 0.0, 0.0]
+
+
 # ─── System stats ──────────────────────────────────────────────────────────────
 def get_system_stats():
-    cpu_per_core = psutil.cpu_percent(percpu=True, interval=None)
+    is_windows = platform.system() == "Windows"
+    cpu_interval = 0.15 if is_windows else None
+    cpu_per_core = psutil.cpu_percent(percpu=True, interval=cpu_interval)
     cpu_freq = psutil.cpu_freq()
     mem  = psutil.virtual_memory()
     swap = psutil.swap_memory()
@@ -179,12 +343,29 @@ def get_system_stats():
 
     temps = {}
     try:
-        raw_temps = psutil.sensors_temperatures()
-        for name, entries in raw_temps.items():
-            temps[name] = [{"label": e.label, "current": e.current,
-                            "high": e.high, "critical": e.critical} for e in entries]
+        if not is_windows:
+            raw_temps = psutil.sensors_temperatures()
+            for name, entries in raw_temps.items():
+                temps[name] = [{"label": e.label, "current": e.current,
+                                "high": e.high, "critical": e.critical} for e in entries]
     except Exception:
         pass
+    if is_windows and not temps:
+        temps = _get_windows_temperatures()
+
+    cpu_percent = (round(sum(cpu_per_core) / len(cpu_per_core), 1)
+                   if (is_windows and cpu_per_core)
+                   else psutil.cpu_percent(interval=None))
+
+    if is_windows and not temps:
+        temps = {
+            "estimated": [{
+                "label": "CPU (estimated)",
+                "current": _estimate_windows_cpu_temp(cpu_percent),
+                "high": None,
+                "critical": None,
+            }]
+        }
 
     battery = None
     try:
@@ -196,41 +377,57 @@ def get_system_stats():
         pass
 
     procs = []
-    for p in sorted(psutil.process_iter(['pid', 'name', 'username', 'status',
-                                          'cpu_percent', 'memory_percent',
-                                          'num_threads', 'create_time']),
-                    key=lambda x: x.info.get('cpu_percent') or 0, reverse=True)[:30]:
-        try:
+    if platform.system() == "Windows":
+        # Keep the endpoint responsive on Windows: status/threads/memory queries can be slow.
+        proc_info = [p.info for p in psutil.process_iter(['pid', 'name', 'username'])]
+        for info in sorted(proc_info, key=lambda x: x.get('pid') or 0, reverse=True)[:30]:
             procs.append({
-                "pid": p.info['pid'], "name": p.info['name'],
-                "user": p.info['username'], "status": p.info['status'],
-                "cpu": round(p.info['cpu_percent'] or 0, 1),
-                "mem": round(p.info['memory_percent'] or 0, 2),
-                "threads": p.info['num_threads'],
-                "started": datetime.datetime.fromtimestamp(
-                    p.info['create_time']).strftime("%H:%M:%S"),
+                "pid": info.get('pid'),
+                "name": info.get('name'),
+                "user": info.get('username'),
+                "status": "unknown",
+                "cpu": 0.0,
+                "mem": 0.0,
+                "threads": 0,
+                "started": "—",
             })
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
+    else:
+        for p in sorted(psutil.process_iter(['pid', 'name', 'username', 'status',
+                                              'cpu_percent', 'memory_percent',
+                                              'num_threads', 'create_time']),
+                        key=lambda x: x.info.get('cpu_percent') or 0, reverse=True)[:30]:
+            try:
+                procs.append({
+                    "pid": p.info['pid'], "name": p.info['name'],
+                    "user": p.info['username'], "status": p.info['status'],
+                    "cpu": round(p.info['cpu_percent'] or 0, 1),
+                    "mem": round(p.info['memory_percent'] or 0, 2),
+                    "threads": p.info['num_threads'],
+                    "started": datetime.datetime.fromtimestamp(
+                        p.info['create_time']).strftime("%H:%M:%S"),
+                })
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
 
     services = []
-    try:
-        import subprocess
-        out = subprocess.check_output(
-            ["systemctl", "list-units", "--type=service", "--no-pager",
-             "--no-legend", "--all"],
-            text=True, timeout=5
-        )
-        for line in out.strip().splitlines():
-            parts = line.split()
-            if len(parts) >= 4:
-                services.append({
-                    "unit": parts[0], "load": parts[1],
-                    "active": parts[2], "sub": parts[3],
-                    "desc": " ".join(parts[4:]) if len(parts) > 4 else "",
-                })
-    except Exception:
-        pass
+    if platform.system() == "Linux":
+        try:
+            import subprocess
+            out = subprocess.check_output(
+                ["systemctl", "list-units", "--type=service", "--no-pager",
+                 "--no-legend", "--all"],
+                text=True, timeout=3
+            )
+            for line in out.strip().splitlines():
+                parts = line.split()
+                if len(parts) >= 4:
+                    services.append({
+                        "unit": parts[0], "load": parts[1],
+                        "active": parts[2], "sub": parts[3],
+                        "desc": " ".join(parts[4:]) if len(parts) > 4 else "",
+                    })
+        except Exception:
+            pass
 
     boot_time  = psutil.boot_time()
     uptime_sec = time.time() - boot_time
@@ -242,14 +439,14 @@ def get_system_stats():
         "platform":  platform.platform(),
         "uptime":    uptime_str,
         "cpu": {
-            "percent":        psutil.cpu_percent(interval=None),
+            "percent":        cpu_percent,
             "per_core":       cpu_per_core,
             "cores_logical":  psutil.cpu_count(logical=True),
             "cores_physical": psutil.cpu_count(logical=False),
             "freq_mhz":       {"current": cpu_freq.current if cpu_freq else None,
                                "min":     cpu_freq.min     if cpu_freq else None,
                                "max":     cpu_freq.max     if cpu_freq else None},
-            "load_avg":       list(os.getloadavg()),
+            "load_avg":       _safe_getloadavg(),
         },
         "memory": {
             "total": mem.total, "available": mem.available,
@@ -347,7 +544,7 @@ if __name__ == '__main__':
 
     host = '0.0.0.0'
     port = 3200
-    server = HTTPServer((host, port), Handler)
+    server = ThreadingHTTPServer((host, port), Handler)
     print(f"SysMon running at http://{socket.gethostname()}:{port}")
     print(f"Also reachable at http://0.0.0.0:{port}")
     try:

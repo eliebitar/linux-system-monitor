@@ -26,6 +26,15 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; line-height: 1.5; }
 
+  /* Sticky top toolbar — header + power banner stay pinned while scrolling */
+  #top-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--bg);
+    box-shadow: 0 2px 8px rgba(0,0,0,.5);
+  }
+
   header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 24px; display: flex; align-items: center; gap: 16px; }
   header h1 { font-size: 18px; font-weight: 700; color: var(--blue); letter-spacing: -0.3px; }
   header .meta { color: var(--muted); font-size: 12px; }
@@ -167,10 +176,103 @@
 
   #last-update { transition: color .3s; }
   .flash { color: var(--green) !important; }
+
+  /* ── Alert / warning styling ── */
+  #alerts-banner {
+    background: linear-gradient(90deg, #3a0a0a 0%, #2a0a0a 100%);
+    border-bottom: 1px solid var(--red);
+    color: #ffd6d6;
+    padding: 10px 24px;
+    font-size: 13px;
+  }
+  #alerts-banner .alert-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 0;
+  }
+  #alerts-banner .alert-item .alert-icon { font-size: 16px; }
+  #alerts-banner .alert-item strong { color: var(--red); }
+
+  .alert-bad {
+    color: var(--red) !important;
+    font-weight: 700 !important;
+  }
+  .alert-warn {
+    color: var(--orange) !important;
+    font-weight: 600 !important;
+  }
+  .alert-good { color: var(--green) !important; }
+
+  .alert-pulse {
+    animation: alertPulse 1.5s ease-in-out infinite;
+  }
+  @keyframes alertPulse {
+    0%,100% { box-shadow: 0 0 0 0 rgba(248,81,73,.4); }
+    50%     { box-shadow: 0 0 0 6px rgba(248,81,73,0); }
+  }
+
+  .alert-note {
+    display: inline-block;
+    font-size: 11px;
+    color: var(--red);
+    background: rgba(248,81,73,.1);
+    border: 1px solid rgba(248,81,73,.3);
+    border-radius: 4px;
+    padding: 2px 6px;
+    margin-top: 4px;
+  }
+  .alert-note.warn {
+    color: var(--orange);
+    background: rgba(227,116,47,.08);
+    border-color: rgba(227,116,47,.3);
+  }
+
+  /* ── Chart containers (storage / temp / network) ── */
+  .mini-chart {
+    width: 100%;
+    height: 90px;
+    display: block;
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .chart-label {
+    display: flex; justify-content: space-between;
+    font-size: 11px; color: var(--muted);
+    margin-top: 4px;
+  }
+  .chart-stat-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    font-size: 11px;
+    margin-top: 6px;
+  }
+  .chart-stat-row .cs-lbl { color: var(--muted); }
+  .chart-stat-row .cs-val { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+  /* Stacked bar for storage breakdown */
+  .stacked-bar {
+    display: flex;
+    width: 100%;
+    height: 22px;
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--border);
+    margin-bottom: 6px;
+  }
+  .stacked-bar .seg {
+    height: 100%;
+    transition: width .6s ease;
+  }
+  .seg-used  { background: linear-gradient(180deg, #58a6ff 0%, #1f6feb 100%); }
+  .seg-used-warn { background: linear-gradient(180deg, #d29922 0%, #b8851a 100%); }
+  .seg-used-crit { background: linear-gradient(180deg, #f85149 0%, #b8231d 100%); }
+  .seg-free  { background: #21262d; }
 </style>
 </head>
 <body>
 
+<div id="top-toolbar">
 <header>
   <h1>⚡ SysMon</h1>
   <div>
@@ -222,6 +324,10 @@
     <span id="rate-feedback"></span>
   </div>
 </div>
+</div><!-- /#top-toolbar -->
+
+<!-- ── Global alerts banner ── -->
+<div id="alerts-banner" style="display:none;"></div>
 
 <main>
 
@@ -275,20 +381,39 @@
     <div id="core-grid"></div>
   </div>
 
-  <!-- Row 3: Disks + Temps + Battery -->
+  <!-- Row 3: Storage overview + Disk usage -->
   <div class="grid-2">
     <div class="card">
-      <div class="card-title"><span>💾</span> Disk Usage</div>
-      <div id="disks-wrap"></div>
+      <div class="card-title"><span>📊</span> Storage Overview (Total / Used / Free)</div>
+      <div id="storage-overview-wrap"></div>
     </div>
 
     <div class="card">
-      <div class="card-title"><span>🌡️</span> Temperatures &amp; Battery</div>
-      <div id="temps-wrap">No sensor data available.</div>
-      <div id="battery-wrap" style="margin-top:12px;display:none;">
-        <div class="card-title"><span>🔋</span> Battery</div>
+      <div class="card-title"><span>💾</span> Disk Usage (per mount)</div>
+      <div id="disks-wrap"></div>
+    </div>
+  </div>
+
+  <!-- Row 4: Temperature chart + battery -->
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title"><span>🌡️</span> Temperature (live)</div>
+      <div id="temps-current" style="margin-bottom:10px;">No sensor data available.</div>
+      <canvas id="temp-chart" class="mini-chart" height="90"></canvas>
+      <div class="chart-label">
+        <span id="temp-axis-old">—</span>
+        <span style="color:var(--text)">now</span>
+      </div>
+      <div class="chart-stat-row" id="temp-stats"></div>
+      <div id="temp-alert" style="margin-top:6px;"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span>🔋</span> Battery &amp; Sensor Notes</div>
+      <div id="battery-wrap" style="display:none;">
         <div id="battery-detail"></div>
       </div>
+      <div id="battery-none" style="color:var(--muted);font-size:12px;">No battery on this system.</div>
     </div>
   </div>
 
@@ -330,6 +455,69 @@ const fmt = (bytes) => {
   return (bytes/1073741824).toFixed(2) + ' GB';
 };
 
+const fmtBps = (bps) => {
+  // bytes/sec → human bits/sec for network throughput
+  const bits = bps * 8;
+  if (bits < 1000) return bits.toFixed(0) + ' bps';
+  if (bits < 1e6)  return (bits/1e3).toFixed(1) + ' Kbps';
+  if (bits < 1e9)  return (bits/1e6).toFixed(1) + ' Mbps';
+  return (bits/1e9).toFixed(2) + ' Gbps';
+};
+
+// ── Threshold definitions (single source of truth for color-coding) ──────────
+const THRESHOLDS = {
+  cpu:    { warn: 75, crit: 90, label: 'CPU usage' },
+  mem:    { warn: 80, crit: 92, label: 'Memory usage' },
+  swap:   { warn: 25, crit: 60, label: 'Swap usage' },
+  disk:   { warn: 80, crit: 92, label: 'Disk usage' },
+  load:   { warnFactor: 1.0, critFactor: 2.0, label: 'Load average' },
+  temp:   { warn: 70, crit: 85, label: 'Temperature' },
+  net:    { warn: 60, crit: 85, label: 'Network link utilization' }, // % of link speed
+  battery:{ warn: 25, crit: 10, label: 'Battery' },  // low is bad here
+};
+
+// Tier helper → 'good' | 'warn' | 'bad'
+function tier(val, t, inverted = false) {
+  if (val == null || isNaN(val)) return 'good';
+  if (inverted) {
+    if (val <= t.crit) return 'bad';
+    if (val <= t.warn) return 'warn';
+    return 'good';
+  }
+  if (val >= t.crit) return 'bad';
+  if (val >= t.warn) return 'warn';
+  return 'good';
+}
+
+function tierClass(t) {
+  return t === 'bad' ? 'alert-bad' : t === 'warn' ? 'alert-warn' : 'alert-good';
+}
+
+// Collect active alerts to render at top
+const _activeAlerts = [];
+function pushAlert(level, where, msg) {
+  _activeAlerts.push({ level, where, msg });
+}
+function renderAlertsBanner() {
+  const el = document.getElementById('alerts-banner');
+  if (_activeAlerts.length === 0) {
+    el.style.display = 'none';
+    el.innerHTML = '';
+    return;
+  }
+  // Sort: bad first, then warn
+  _activeAlerts.sort((a,b) => (a.level === 'bad' ? 0 : 1) - (b.level === 'bad' ? 0 : 1));
+  el.style.display = 'block';
+  el.innerHTML = _activeAlerts.map(a => {
+    const icon = a.level === 'bad' ? '🚨' : '⚠️';
+    const lvl  = a.level === 'bad' ? 'CRITICAL' : 'WARNING';
+    return `<div class="alert-item">
+      <span class="alert-icon">${icon}</span>
+      <strong>${lvl}</strong> · <span style="color:var(--blue)">${a.where}</span> — ${a.msg}
+    </div>`;
+  }).join('');
+}
+
 const gColor = (pct) => {
   if (pct < 50) return 'g-low';
   if (pct < 75) return 'g-med';
@@ -344,12 +532,129 @@ const coreColor = (pct) => {
   return 'var(--red)';
 };
 
-function setGauge(barId, valId, pct) {
+function setGauge(barId, valId, pct, threshKey) {
   const bar = document.getElementById(barId);
   const val = document.getElementById(valId);
   bar.style.width = pct + '%';
   bar.className = 'gauge-fill ' + gColor(pct);
   val.textContent = pct.toFixed(1) + '%';
+  if (threshKey && THRESHOLDS[threshKey]) {
+    const t = tier(pct, THRESHOLDS[threshKey]);
+    val.classList.remove('alert-bad','alert-warn','alert-good');
+    val.classList.add(tierClass(t));
+  }
+}
+
+// ── Generic line-chart renderer (used by temp + network) ─────────────────────
+// data: array of numbers (oldest → newest). max: optional Y-axis cap.
+// color: line color. fillColor: gradient base. yFormatter: fn for axis labels.
+function drawLineChart(canvas, data, opts = {}) {
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  const dpr  = window.devicePixelRatio || 1;
+  const W    = rect.width  || canvas.offsetWidth  || 300;
+  const H    = rect.height || canvas.offsetHeight || 90;
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const color     = opts.color     || '#58a6ff';
+  const fillBase  = opts.fillBase  || 'rgba(88,166,255,';
+  const maxPoints = opts.maxPoints || 60;
+  const yFmt      = opts.yFormatter || (v => v.toFixed(0));
+  const yMin0     = opts.yMin0 !== false; // default true
+
+  if (!data || data.length < 2) {
+    ctx.fillStyle = fillBase + '.05)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(139,148,158,.5)';
+    ctx.font = '11px "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('collecting…', W/2, H/2);
+    return;
+  }
+
+  let minV = yMin0 ? 0 : Math.min(...data) * 0.9;
+  let maxV = Math.max(...data, opts.minMax || 1) * 1.1;
+  if (maxV - minV < 0.001) maxV = minV + 1;
+  const range = maxV - minV;
+
+  const xStep = W / (maxPoints - 1);
+  const startIdx = maxPoints - data.length;
+  const xOf = i => i * xStep;
+  const yOf = v => H - ((v - minV) / range) * (H - 6) - 3;
+
+  // Background
+  ctx.fillStyle = fillBase + '.04)';
+  ctx.fillRect(0, 0, W, H);
+
+  // Grid
+  ctx.strokeStyle = 'rgba(139,148,158,.12)';
+  ctx.lineWidth = 1;
+  for (let i = 1; i <= 3; i++) {
+    const y = Math.round(H * i / 4) + 0.5;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  // Fill area
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, fillBase + '.35)');
+  grad.addColorStop(1, fillBase + '.02)');
+  ctx.beginPath();
+  data.forEach((v, i) => {
+    const x = xOf(startIdx + i);
+    const y = yOf(v);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.lineTo(xOf(startIdx + data.length - 1), H);
+  ctx.lineTo(xOf(startIdx), H);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Threshold line (warn/crit) if requested
+  if (opts.warnLine != null && opts.warnLine >= minV && opts.warnLine <= maxV) {
+    const y = yOf(opts.warnLine);
+    ctx.setLineDash([3,3]);
+    ctx.strokeStyle = 'rgba(227,116,47,.6)';
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  if (opts.critLine != null && opts.critLine >= minV && opts.critLine <= maxV) {
+    const y = yOf(opts.critLine);
+    ctx.setLineDash([3,3]);
+    ctx.strokeStyle = 'rgba(248,81,73,.7)';
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Line
+  ctx.beginPath();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.8;
+  ctx.lineJoin = 'round';
+  data.forEach((v, i) => {
+    const x = xOf(startIdx + i);
+    const y = yOf(v);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Last dot
+  const lx = xOf(startIdx + data.length - 1);
+  const ly = yOf(data[data.length - 1]);
+  ctx.beginPath();
+  ctx.arc(lx, ly, 3, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+
+  // Y labels
+  ctx.fillStyle = 'rgba(139,148,158,.7)';
+  ctx.font = '9px "Segoe UI", sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(yFmt(maxV), 2, 10);
+  ctx.fillText(yFmt(minV), 2, H - 2);
 }
 
 // ── Watts history ring-buffer (last 60 samples × 3 s = ~3 min window) ─────────
@@ -522,14 +827,38 @@ function showFeedback(msg, isErr=false) {
   _feedbackTimer = setTimeout(() => { el.textContent = ''; }, 3000);
 }
 
+// ── History ring-buffers for temp & network ──────────────────────────────────
+const HISTORY_MAX = 60;     // ~3 min at 3s interval
+const _tempHistory = [];    // [{ts, value}] — uses max sensor reading
+const _netHistory  = {};    // { nic: { tx: [...], rx: [...], maxTx, maxRx, sumTx, sumRx, n } }
+
+function pushHistory(arr, value) {
+  arr.push(value);
+  if (arr.length > HISTORY_MAX) arr.shift();
+}
+
 // ── Main update ───────────────────────────────────────────────────────────────
 function update(d) {
+  // Reset alerts collected this tick
+  _activeAlerts.length = 0;
+
   // Header
   document.getElementById('hostname').textContent = d.hostname;
   document.getElementById('platform-info').textContent = d.platform;
   document.getElementById('s-hostname').textContent = d.hostname;
   document.getElementById('s-uptime').textContent = d.uptime;
-  document.getElementById('s-load').textContent = d.cpu.load_avg.map(v=>v.toFixed(2)).join(' / ');
+
+  // Load average — color-code based on physical core count
+  const cores = d.cpu.cores_physical || 1;
+  const load1 = d.cpu.load_avg[0];
+  const loadEl = document.getElementById('s-load');
+  loadEl.textContent = d.cpu.load_avg.map(v=>v.toFixed(2)).join(' / ');
+  loadEl.classList.remove('alert-bad','alert-warn','alert-good');
+  if (load1 > cores * 2)      { loadEl.classList.add('alert-bad');
+    pushAlert('bad', 'Load avg', `1-min load (${load1.toFixed(2)}) > 2× cores (${cores}). System is heavily overloaded — investigate runaway processes.`); }
+  else if (load1 > cores)     { loadEl.classList.add('alert-warn');
+    pushAlert('warn', 'Load avg', `1-min load (${load1.toFixed(2)}) exceeds core count (${cores}). Processes are queueing for CPU.`); }
+
   document.getElementById('s-cores').textContent = `${d.cpu.cores_physical} physical / ${d.cpu.cores_logical} logical`;
   document.getElementById('s-freq').textContent = d.cpu.freq_mhz.current ? d.cpu.freq_mhz.current.toFixed(0) + ' MHz' : '—';
 
@@ -537,14 +866,31 @@ function update(d) {
   updatePower(d.power);
 
   // CPU
-  document.getElementById('cpu-big').textContent = d.cpu.percent.toFixed(1);
-  setGauge('cpu-bar', 'cpu-val', d.cpu.percent);
+  const cpuBig = document.getElementById('cpu-big');
+  cpuBig.textContent = d.cpu.percent.toFixed(1);
+  cpuBig.classList.remove('alert-bad','alert-warn','alert-good');
+  const cpuT = tier(d.cpu.percent, THRESHOLDS.cpu);
+  cpuBig.classList.add(tierClass(cpuT));
+  if (cpuT === 'bad') pushAlert('bad', 'CPU', `Sustained CPU at ${d.cpu.percent.toFixed(1)}%. Check the top-processes table — something is hammering the CPU.`);
+  else if (cpuT === 'warn') pushAlert('warn', 'CPU', `CPU is busy (${d.cpu.percent.toFixed(1)}%). Monitor if this persists.`);
+  setGauge('cpu-bar', 'cpu-val', d.cpu.percent, 'cpu');
 
   // Memory
-  document.getElementById('mem-big').textContent = d.memory.percent.toFixed(1);
+  const memBig = document.getElementById('mem-big');
+  memBig.textContent = d.memory.percent.toFixed(1);
+  memBig.classList.remove('alert-bad','alert-warn','alert-good');
+  const memT = tier(d.memory.percent, THRESHOLDS.mem);
+  memBig.classList.add(tierClass(memT));
+  if (memT === 'bad') pushAlert('bad', 'Memory', `RAM at ${d.memory.percent.toFixed(1)}% (${fmt(d.memory.used)} / ${fmt(d.memory.total)}). Risk of OOM-killer or swap thrash — close apps or add RAM.`);
+  else if (memT === 'warn') pushAlert('warn', 'Memory', `RAM usage high (${d.memory.percent.toFixed(1)}%). Consider freeing memory soon.`);
   document.getElementById('mem-detail').textContent = `${fmt(d.memory.used)} / ${fmt(d.memory.total)}`;
-  setGauge('mem-bar', 'mem-val', d.memory.percent);
-  setGauge('swap-bar', 'swap-val', d.swap.percent);
+  setGauge('mem-bar', 'mem-val', d.memory.percent, 'mem');
+  setGauge('swap-bar', 'swap-val', d.swap.percent, 'swap');
+  if (d.swap.percent >= THRESHOLDS.swap.crit) {
+    pushAlert('bad', 'Swap', `Swap at ${d.swap.percent.toFixed(1)}% (${fmt(d.swap.used)}). System is paging heavily — performance will suffer.`);
+  } else if (d.swap.percent >= THRESHOLDS.swap.warn) {
+    pushAlert('warn', 'Swap', `Swap in use (${d.swap.percent.toFixed(1)}%). Indicates memory pressure.`);
+  }
   document.getElementById('mem-buf').textContent = fmt(d.memory.buffers || 0);
   document.getElementById('mem-cached').textContent = fmt(d.memory.cached || 0);
 
@@ -556,9 +902,67 @@ function update(d) {
       <div class="core-v" style="color:${coreColor(p)}">${p.toFixed(0)}%</div>
     </div>`).join('');
 
-  // Disks
+  // ── Storage Overview (NEW): aggregate + per-disk stacked breakdown ──────────
+  const sw = document.getElementById('storage-overview-wrap');
+  // Filter out tmpfs/devtmpfs/squashfs duplicates by mountpoint
+  const physDisks = (d.disks || []).filter(x => !['tmpfs','devtmpfs','squashfs','overlay'].includes(x.fstype));
+  const totalAll = physDisks.reduce((a,x)=>a+x.total,0);
+  const usedAll  = physDisks.reduce((a,x)=>a+x.used,0);
+  const freeAll  = totalAll - usedAll;
+  const pctAll   = totalAll ? (usedAll/totalAll*100) : 0;
+  const aggT     = tier(pctAll, THRESHOLDS.disk);
+  const aggSeg   = aggT === 'bad' ? 'seg-used-crit' : aggT === 'warn' ? 'seg-used-warn' : 'seg-used';
+  const aggColor = aggT === 'bad' ? 'var(--red)' : aggT === 'warn' ? 'var(--orange)' : 'var(--green)';
+
+  let storageHTML = `
+    <div style="margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
+        <span style="font-size:12px;color:var(--muted)">TOTAL ACROSS ALL DISKS</span>
+        <span style="font-size:18px;font-weight:700;color:${aggColor};font-variant-numeric:tabular-nums;">${pctAll.toFixed(1)}% used</span>
+      </div>
+      <div class="stacked-bar${aggT==='bad'?' alert-pulse':''}">
+        <div class="seg ${aggSeg}" style="width:${pctAll}%"></div>
+        <div class="seg seg-free" style="width:${100-pctAll}%"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);">
+        <span>Used: <strong style="color:${aggColor}">${fmt(usedAll)}</strong></span>
+        <span>Free: <strong style="color:var(--green)">${fmt(freeAll)}</strong></span>
+        <span>Total: <strong style="color:var(--text)">${fmt(totalAll)}</strong></span>
+      </div>
+      ${aggT==='bad' ? `<div class="alert-note">🚨 Storage is critically full. Free up space immediately — backups, builds, OS upgrades may fail.</div>` :
+        aggT==='warn' ? `<div class="alert-note warn">⚠️ Storage is filling up. Plan to clean up or expand soon.</div>` : ''}
+    </div>`;
+
+  // Per-disk stacked
+  storageHTML += physDisks.map(disk => {
+    const t = tier(disk.percent, THRESHOLDS.disk);
+    const seg = t === 'bad' ? 'seg-used-crit' : t === 'warn' ? 'seg-used-warn' : 'seg-used';
+    const col = t === 'bad' ? 'var(--red)' : t === 'warn' ? 'var(--orange)' : 'var(--text)';
+    if (t === 'bad') pushAlert('bad', `Disk ${disk.mountpoint}`, `${disk.percent.toFixed(1)}% used (${fmt(disk.free)} free). Free space immediately.`);
+    else if (t === 'warn') pushAlert('warn', `Disk ${disk.mountpoint}`, `${disk.percent.toFixed(1)}% used (${fmt(disk.free)} free). Clean up soon.`);
+    return `
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;">
+          <span style="color:var(--blue);font-weight:600;">${disk.mountpoint}</span>
+          <span style="color:${col};font-variant-numeric:tabular-nums;font-weight:600;">${disk.percent.toFixed(1)}%</span>
+        </div>
+        <div class="stacked-bar" style="height:14px;">
+          <div class="seg ${seg}" style="width:${disk.percent}%"></div>
+          <div class="seg seg-free" style="width:${100-disk.percent}%"></div>
+        </div>
+        <div style="font-size:10.5px;color:var(--muted);margin-top:2px;">
+          ${fmt(disk.used)} / ${fmt(disk.total)} · ${fmt(disk.free)} free · ${disk.fstype}
+        </div>
+      </div>`;
+  }).join('');
+  sw.innerHTML = storageHTML;
+
+  // Per-mount detail (right card — keep existing for compat, color-coded)
   const dw = document.getElementById('disks-wrap');
-  dw.innerHTML = d.disks.map(disk => `
+  dw.innerHTML = d.disks.map(disk => {
+    const t = tier(disk.percent, THRESHOLDS.disk);
+    const cls = t === 'bad' ? 'alert-bad' : t === 'warn' ? 'alert-warn' : '';
+    return `
     <div style="margin-bottom:10px;">
       <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
         <span style="color:var(--blue);font-size:12px;font-weight:600;">${disk.mountpoint}</span>
@@ -567,57 +971,208 @@ function update(d) {
       <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">${disk.device}</div>
       <div class="gauge-wrap" style="margin-bottom:2px;">
         <div class="gauge-bar"><div class="gauge-fill ${gColor(disk.percent)}" style="width:${disk.percent}%"></div></div>
-        <div class="gauge-val">${disk.percent.toFixed(1)}%</div>
+        <div class="gauge-val ${cls}">${disk.percent.toFixed(1)}%</div>
       </div>
       <div style="font-size:11px;color:var(--muted);">${fmt(disk.used)} used / ${fmt(disk.total)} total — ${fmt(disk.free)} free</div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
-  // Temperatures
-  const tw = document.getElementById('temps-wrap');
-  if (Object.keys(d.temperatures).length === 0) {
-    tw.innerHTML = '<span style="color:var(--muted);font-size:12px;">No temperature sensors found.</span>';
+  // ── Temperatures (NEW: chips + live line chart) ──────────────────────────────
+  const tc = document.getElementById('temps-current');
+  let maxTempVal = null;
+  let maxTempLabel = '';
+  if (Object.keys(d.temperatures || {}).length === 0) {
+    tc.innerHTML = '<span style="color:var(--muted);font-size:12px;">No temperature sensors found.</span>';
   } else {
-    tw.innerHTML = Object.entries(d.temperatures).map(([name, entries]) => `
-      <div style="margin-bottom:8px;">
-        <div style="color:var(--muted);font-size:11px;margin-bottom:4px;">${name}</div>
+    tc.innerHTML = Object.entries(d.temperatures).map(([name, entries]) => `
+      <div style="margin-bottom:6px;">
+        <div style="color:var(--muted);font-size:11px;margin-bottom:3px;">${name}</div>
         ${entries.map(e => {
-          const c = e.current >= (e.critical||100)*0.9 ? 'var(--red)' : e.current >= (e.high||80)*0.9 ? 'var(--orange)' : 'var(--green)';
-          return `<span class="temp-chip" style="background:#1c2128;color:${c};">${e.label||'sensor'}: ${e.current}°C${e.high ? ' / '+e.high+'°' : ''}</span>`;
+          if (maxTempVal === null || e.current > maxTempVal) {
+            maxTempVal = e.current;
+            maxTempLabel = `${name}/${e.label||'sensor'}`;
+          }
+          const t = tier(e.current, THRESHOLDS.temp);
+          const color = t === 'bad' ? 'var(--red)' : t === 'warn' ? 'var(--orange)' : 'var(--green)';
+          return `<span class="temp-chip" style="background:#1c2128;color:${color};">${e.label||'sensor'}: ${e.current}°C${e.high ? ' / '+e.high+'°' : ''}</span>`;
         }).join('')}
       </div>`).join('');
+  }
+
+  // Push max temp to history & draw chart
+  if (maxTempVal !== null) {
+    pushHistory(_tempHistory, maxTempVal);
+    const t = tier(maxTempVal, THRESHOLDS.temp);
+    const lineColor = t === 'bad' ? '#f85149' : t === 'warn' ? '#e3742f' : '#3fb950';
+    const fillBase  = t === 'bad' ? 'rgba(248,81,73,'  : t === 'warn' ? 'rgba(227,116,47,' : 'rgba(63,185,80,';
+    drawLineChart(document.getElementById('temp-chart'), _tempHistory, {
+      color: lineColor,
+      fillBase: fillBase,
+      yFormatter: v => v.toFixed(0) + '°C',
+      warnLine: THRESHOLDS.temp.warn,
+      critLine: THRESHOLDS.temp.crit,
+      minMax: 90,
+      yMin0: false,
+    });
+    // Stats
+    const minH = Math.min(..._tempHistory);
+    const maxH = Math.max(..._tempHistory);
+    const avgH = _tempHistory.reduce((a,b)=>a+b,0) / _tempHistory.length;
+    document.getElementById('temp-stats').innerHTML = `
+      <div><span class="cs-lbl">Now</span> <span class="cs-val ${tierClass(t)}">${maxTempVal.toFixed(1)}°C</span></div>
+      <div><span class="cs-lbl">Avg</span> <span class="cs-val">${avgH.toFixed(1)}°C</span></div>
+      <div><span class="cs-lbl">Max</span> <span class="cs-val ${tierClass(tier(maxH, THRESHOLDS.temp))}">${maxH.toFixed(1)}°C</span></div>
+    `;
+    const taEl = document.getElementById('temp-alert');
+    if (t === 'bad') {
+      taEl.innerHTML = `<span class="alert-note">🚨 ${maxTempLabel} at ${maxTempVal}°C. Critical — check cooling, clean dust filters, verify fans NOW.</span>`;
+      pushAlert('bad', 'Temperature', `${maxTempLabel} at ${maxTempVal}°C. Check cooling immediately.`);
+    } else if (t === 'warn') {
+      taEl.innerHTML = `<span class="alert-note warn">⚠️ ${maxTempLabel} at ${maxTempVal}°C — running hot. Make sure airflow is unobstructed.</span>`;
+      pushAlert('warn', 'Temperature', `${maxTempLabel} at ${maxTempVal}°C — running warm.`);
+    } else {
+      taEl.innerHTML = '';
+    }
+    // Time-span label
+    document.getElementById('temp-axis-old').textContent =
+      `${_tempHistory.length * 3}s ago`;
   }
 
   // Battery
   if (d.battery) {
     document.getElementById('battery-wrap').style.display = 'block';
+    document.getElementById('battery-none').style.display = 'none';
     const b = d.battery;
     const secsleft = b.secsleft > 0 ? ` (${Math.floor(b.secsleft/3600)}h ${Math.floor((b.secsleft%3600)/60)}m)` : '';
+    const bt = tier(b.percent, THRESHOLDS.battery, true);
+    if (bt === 'bad' && !b.power_plugged) pushAlert('bad', 'Battery', `Only ${b.percent.toFixed(0)}% remaining. Plug in immediately to avoid shutdown.`);
+    else if (bt === 'warn' && !b.power_plugged) pushAlert('warn', 'Battery', `${b.percent.toFixed(0)}% remaining. Consider plugging in.`);
     document.getElementById('battery-detail').innerHTML = `
       <div class="gauge-wrap">
         <div class="gauge-label">Battery</div>
-        <div class="gauge-bar"><div class="gauge-fill ${gColor(100-b.percent)}" style="width:${b.percent}%;background:${b.percent>20?'var(--green)':'var(--red)'}"></div></div>
-        <div class="gauge-val">${b.percent.toFixed(0)}%</div>
+        <div class="gauge-bar"><div class="gauge-fill" style="width:${b.percent}%;background:${b.percent>20?'var(--green)':'var(--red)'}"></div></div>
+        <div class="gauge-val ${tierClass(bt)}">${b.percent.toFixed(0)}%</div>
       </div>
       <div style="font-size:12px;color:var(--muted);">${b.power_plugged ? '🔌 Plugged in' : '🔋 On battery'+secsleft}</div>`;
   }
 
-  // Network
+  // ── Network (NEW: live charts + max/avg + bottleneck warning) ────────────────
   const nw = document.getElementById('net-wrap');
-  nw.innerHTML = Object.entries(d.network).map(([nic, v]) => `
-    <div style="margin-bottom:10px;">
-      <div class="nic-name">${nic}</div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:12px;">
-        <div><span style="color:var(--muted)">↑ Sent</span><br/><strong>${fmt(v.bytes_sent)}</strong></div>
-        <div><span style="color:var(--muted)">↓ Recv</span><br/><strong>${fmt(v.bytes_recv)}</strong></div>
-        <div><span style="color:var(--muted)">Packets ↑/↓</span><br/><strong>${v.packets_sent} / ${v.packets_recv}</strong></div>
-      </div>
-      ${v.errin||v.errout ? `<div style="color:var(--red);font-size:11px;margin-top:2px;">Errors in:${v.errin} out:${v.errout}</div>` : ''}
-    </div>`).join('<hr style="border:none;border-top:1px solid var(--border);margin:6px 0;">');
+  const tput = d.net_throughput || {};
+  const ifStats = d.net_if_stats || {};
+
+  // Filter: only NICs with actual traffic OR up
+  const nicEntries = Object.entries(d.network).filter(([nic, v]) => {
+    const info = ifStats[nic];
+    return (info && info.isup) || v.bytes_sent > 0 || v.bytes_recv > 0;
+  });
+
+  nw.innerHTML = nicEntries.map(([nic, v]) => {
+    if (!_netHistory[nic]) {
+      _netHistory[nic] = { tx: [], rx: [], maxTx: 0, maxRx: 0, sumTx: 0, sumRx: 0, n: 0 };
+    }
+    const h = _netHistory[nic];
+    const tx = tput[nic] ? tput[nic].tx_bps : 0;
+    const rx = tput[nic] ? tput[nic].rx_bps : 0;
+    pushHistory(h.tx, tx);
+    pushHistory(h.rx, rx);
+    h.maxTx = Math.max(h.maxTx, tx);
+    h.maxRx = Math.max(h.maxRx, rx);
+    h.sumTx += tx; h.sumRx += rx; h.n += 1;
+    const avgTx = h.sumTx / h.n;
+    const avgRx = h.sumRx / h.n;
+
+    const linkMbps = ifStats[nic] ? ifStats[nic].speed_mbps : 0;
+    const linkBps  = linkMbps * 125000; // Mbps → bytes/sec (1 Mbps = 125 KB/s)
+    const peakBps  = Math.max(h.maxTx, h.maxRx);
+    const linkUtilPct = (linkBps > 0) ? Math.min(100, (peakBps / linkBps) * 100) : null;
+
+    let bottleneckNote = '';
+    if (linkUtilPct != null) {
+      if (linkUtilPct >= THRESHOLDS.net.crit) {
+        bottleneckNote = `<div class="alert-note">🚨 Peak throughput (${fmtBps(peakBps)}) is ${linkUtilPct.toFixed(0)}% of the ${linkMbps} Mbps link. The network is the bottleneck — upgrade the link or reduce load.</div>`;
+        pushAlert('bad', `Network ${nic}`, `Peak ${fmtBps(peakBps)} = ${linkUtilPct.toFixed(0)}% of ${linkMbps} Mbps link. Bottleneck.`);
+      } else if (linkUtilPct >= THRESHOLDS.net.warn) {
+        bottleneckNote = `<div class="alert-note warn">⚠️ Peak is ${linkUtilPct.toFixed(0)}% of link capacity (${linkMbps} Mbps). Close to saturation under spikes.</div>`;
+        pushAlert('warn', `Network ${nic}`, `Peak ${fmtBps(peakBps)} = ${linkUtilPct.toFixed(0)}% of ${linkMbps} Mbps link.`);
+      }
+    }
+    if (v.errin || v.errout) {
+      pushAlert('warn', `Network ${nic}`, `Interface errors detected (in:${v.errin} out:${v.errout}).`);
+    }
+
+    // Util tier coloring
+    const utilT = linkUtilPct != null ? tier(linkUtilPct, THRESHOLDS.net) : 'good';
+
+    return `
+      <div style="margin-bottom:14px;border:1px solid var(--border);border-radius:6px;padding:10px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <div>
+            <span class="nic-name" style="margin:0;">${nic}</span>
+            ${linkMbps ? `<span class="badge badge-blue" style="margin-left:6px;">${linkMbps >= 1000 ? (linkMbps/1000)+' Gbps' : linkMbps+' Mbps'} link</span>` : ''}
+            ${ifStats[nic] && !ifStats[nic].isup ? '<span class="badge badge-red" style="margin-left:6px;">DOWN</span>' : ''}
+          </div>
+          <div style="font-size:11px;color:var(--muted);">↑ ${fmtBps(tx)} &nbsp; ↓ ${fmtBps(rx)}</div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:3px;">↑ TX (bits/sec)</div>
+            <canvas class="mini-chart" id="net-tx-${nic.replace(/[^\w]/g,'_')}" height="80"></canvas>
+            <div class="chart-stat-row">
+              <div><span class="cs-lbl">Now</span> <span class="cs-val">${fmtBps(tx)}</span></div>
+              <div><span class="cs-lbl">Avg</span> <span class="cs-val">${fmtBps(avgTx)}</span></div>
+              <div><span class="cs-lbl">Max</span> <span class="cs-val">${fmtBps(h.maxTx)}</span></div>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:3px;">↓ RX (bits/sec)</div>
+            <canvas class="mini-chart" id="net-rx-${nic.replace(/[^\w]/g,'_')}" height="80"></canvas>
+            <div class="chart-stat-row">
+              <div><span class="cs-lbl">Now</span> <span class="cs-val">${fmtBps(rx)}</span></div>
+              <div><span class="cs-lbl">Avg</span> <span class="cs-val">${fmtBps(avgRx)}</span></div>
+              <div><span class="cs-lbl">Max</span> <span class="cs-val">${fmtBps(h.maxRx)}</span></div>
+            </div>
+          </div>
+        </div>
+
+        ${linkUtilPct != null ? `
+          <div style="margin-top:8px;display:flex;align-items:center;gap:8px;font-size:11px;">
+            <span style="color:var(--muted);">Peak vs link capacity:</span>
+            <div class="gauge-bar" style="flex:1;height:6px;"><div class="gauge-fill ${gColor(linkUtilPct)}" style="width:${linkUtilPct}%"></div></div>
+            <span class="${tierClass(utilT)}" style="font-variant-numeric:tabular-nums;">${linkUtilPct.toFixed(1)}%</span>
+          </div>` : ''}
+
+        <div style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);margin-top:6px;">
+          <span>Total: ↑ ${fmt(v.bytes_sent)} / ↓ ${fmt(v.bytes_recv)}</span>
+          <span>Pkts: ↑ ${v.packets_sent} / ↓ ${v.packets_recv}</span>
+          ${v.errin||v.errout ? `<span style="color:var(--red);">Err in:${v.errin} out:${v.errout}</span>` : ''}
+        </div>
+
+        ${bottleneckNote}
+      </div>`;
+  }).join('');
+
+  // Draw network mini-charts (after innerHTML so canvases exist)
+  nicEntries.forEach(([nic]) => {
+    const safe = nic.replace(/[^\w]/g, '_');
+    const h = _netHistory[nic];
+    if (!h) return;
+    drawLineChart(document.getElementById('net-tx-' + safe), h.tx, {
+      color: '#bc8cff', fillBase: 'rgba(188,140,255,', yFormatter: v => fmtBps(v),
+    });
+    drawLineChart(document.getElementById('net-rx-' + safe), h.rx, {
+      color: '#58a6ff', fillBase: 'rgba(88,166,255,', yFormatter: v => fmtBps(v),
+    });
+  });
 
   // Services
   const sb = document.getElementById('svc-tbody');
   sb.innerHTML = d.services.slice(0, 100).map(s => {
     const cls = s.active === 'active' ? 'svc-active' : s.active === 'failed' ? 'svc-failed' : 'svc-inactive';
+    if (s.active === 'failed') {
+      pushAlert('warn', 'Service', `${s.unit} is in FAILED state. Run: systemctl status ${s.unit}`);
+    }
     return `<tr>
       <td style="font-family:monospace;font-size:11px;">${s.unit}</td>
       <td><span class="badge badge-blue">${s.load}</span></td>
@@ -632,6 +1187,7 @@ function update(d) {
   pb.innerHTML = d.processes.map(p => {
     const cls = p.status === 'running' ? 'status-running' : p.status === 'zombie' ? 'status-zombie' : 'status-sleeping';
     const cpuColor = p.cpu > 50 ? 'var(--red)' : p.cpu > 20 ? 'var(--orange)' : 'var(--text)';
+    if (p.status === 'zombie') pushAlert('warn', 'Process', `Zombie process detected: ${p.name} (PID ${p.pid}). Reap or restart parent.`);
     return `<tr>
       <td style="color:var(--muted)">${p.pid}</td>
       <td style="font-weight:600">${p.name}</td>
@@ -643,6 +1199,9 @@ function update(d) {
       <td style="color:var(--muted)">${p.started}</td>
     </tr>`;
   }).join('');
+
+  // Render the alerts banner with everything collected this tick
+  renderAlertsBanner();
 
   // Flash last update
   const lu = document.getElementById('last-update');

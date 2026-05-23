@@ -19,6 +19,11 @@ _power_lock = threading.Lock()
 _power_config = {"rate_eur_per_kwh": 0.35}   # German avg; user-editable
 _power_cache  = {"watts": None, "source": "unavailable", "ts": 0}
 
+# ─── Network throughput state ──────────────────────────────────────────────────
+_net_prev_lock = threading.Lock()
+_net_prev_snap: dict = {}   # {nic: (bytes_sent, bytes_recv)}
+_net_prev_ts: list   = []   # [timestamp]
+
 # ─── RAPL helpers ─────────────────────────────────────────────────────────────
 RAPL_BASE = Path("/sys/class/powercap/intel-rapl")
 
@@ -138,6 +143,40 @@ def get_system_stats():
         for nic, v in net.items()
     }
 
+    # Per-NIC link info (speed in Mbps, isup) for bottleneck calc
+    net_if_stats = {}
+    try:
+        for nic, s in psutil.net_if_stats().items():
+            net_if_stats[nic] = {
+                "isup": bool(s.isup),
+                "speed_mbps": int(s.speed) if s.speed else 0,
+                "mtu": int(s.mtu) if s.mtu else 0,
+            }
+    except Exception:
+        pass
+
+    # Compute per-NIC throughput (bytes/sec) using delta from last call
+    now_t = time.time()
+    with _net_prev_lock:
+        prev_snap = _net_prev_snap.copy()
+        prev_ts   = _net_prev_ts[0] if _net_prev_ts else now_t
+        # Update stored snapshot
+        _net_prev_snap.clear()
+        for nic, v in net.items():
+            _net_prev_snap[nic] = (v.bytes_sent, v.bytes_recv)
+        _net_prev_ts.clear()
+        _net_prev_ts.append(now_t)
+
+    dt = max(now_t - prev_ts, 0.1)
+    net_throughput = {}
+    for nic, v in net.items():
+        if nic in prev_snap:
+            tx = max(0.0, (v.bytes_sent - prev_snap[nic][0]) / dt)
+            rx = max(0.0, (v.bytes_recv - prev_snap[nic][1]) / dt)
+        else:
+            tx, rx = 0.0, 0.0
+        net_throughput[nic] = {"tx_bps": round(tx), "rx_bps": round(rx)}
+
     temps = {}
     try:
         raw_temps = psutil.sensors_temperatures()
@@ -224,6 +263,8 @@ def get_system_stats():
         },
         "disks":        disks,
         "network":      net_stats,
+        "net_throughput": net_throughput,
+        "net_if_stats": net_if_stats,
         "temperatures": temps,
         "battery":      battery,
         "processes":    procs,

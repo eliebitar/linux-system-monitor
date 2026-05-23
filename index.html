@@ -130,8 +130,24 @@
   }
   .card.collapsible.collapsed > .card-title { margin-bottom: 0; }
   .card.collapsible.collapsed > .card-title::after { transform: translateY(-50%) rotate(-90deg); }
-  .card.collapsible.collapsed > *:not(.card-title) { display: none !important; }
+  .card.collapsible.collapsed > *:not(.card-title):not(.card-summary) { display: none !important; }
+  .card.collapsible > .card-summary { display: none; }
+  .card.collapsible.collapsed > .card-summary { display: block; margin-top: 10px; }
   .card.collapsible > .card-title:hover::after { opacity: 1; color: var(--blue); }
+
+  /* Collapsed-summary widgets */
+  .sum-row { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+  .sum-row + .sum-row { margin-top: 6px; }
+  .sum-lbl { color: var(--muted); min-width: 70px; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+  .sum-val { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); }
+  .sum-bar { flex: 1; height: 6px; background: rgba(139,148,158,.18); border-radius: 3px; overflow: hidden; min-width: 60px; }
+  .sum-bar > div { height: 100%; transition: width .25s ease; }
+  .sum-pill { display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; background: #1c2128; }
+  .sum-dots { display: flex; gap: 2px; flex-wrap: wrap; }
+  .sum-dot { width: 9px; height: 9px; border-radius: 2px; background: var(--green); }
+  .sum-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; }
+  .sum-mini { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
+  .sum-mini strong { color: var(--text); font-variant-numeric: tabular-nums; }
 
   /* Interactive chart tooltip */
   #chart-tooltip {
@@ -362,6 +378,7 @@
   <div class="grid-3">
     <div class="card collapsible">
       <div class="card-title"><span>🕐</span> System</div>
+      <div class="card-summary" id="sum-system"></div>
       <div class="stat-row"><span class="k">Hostname</span><span class="v" id="s-hostname">—</span></div>
       <div class="stat-row"><span class="k">Uptime</span><span class="v uptime-val" id="s-uptime">—</span></div>
       <div class="stat-row"><span class="k">Load avg (1/5/15m)</span><span class="v" id="s-load">—</span></div>
@@ -371,6 +388,7 @@
 
     <div class="card collapsible">
       <div class="card-title"><span>🖥️</span> CPU Overall</div>
+      <div class="card-summary" id="sum-cpu"></div>
       <div style="display:flex;gap:16px;align-items:flex-end;margin-bottom:12px;">
         <div><div class="big-stat" id="cpu-big">—</div><div class="big-unit">% utilisation</div></div>
       </div>
@@ -383,6 +401,7 @@
 
     <div class="card collapsible">
       <div class="card-title"><span>🧠</span> Memory</div>
+      <div class="card-summary" id="sum-mem"></div>
       <div style="display:flex;gap:16px;align-items:flex-end;margin-bottom:12px;">
         <div><div class="big-stat" id="mem-big">—</div><div class="big-unit">% used</div></div>
         <div style="font-size:12px;color:var(--muted);margin-bottom:4px;" id="mem-detail">—</div>
@@ -405,6 +424,7 @@
   <!-- Row 2: Per-core CPU -->
   <div class="card collapsible">
     <div class="card-title"><span>⚙️</span> Per-Core CPU Usage</div>
+    <div class="card-summary" id="sum-cores"></div>
     <div id="core-grid"></div>
   </div>
 
@@ -412,11 +432,13 @@
   <div class="grid-2">
     <div class="card collapsible">
       <div class="card-title"><span>📊</span> Storage Overview (Total / Used / Free)</div>
+      <div class="card-summary" id="sum-storage"></div>
       <div id="storage-overview-wrap"></div>
     </div>
 
     <div class="card collapsible">
       <div class="card-title"><span>💾</span> Disk Usage (per mount)</div>
+      <div class="card-summary" id="sum-disks"></div>
       <div id="disks-wrap"></div>
     </div>
   </div>
@@ -425,6 +447,7 @@
   <div class="grid-2">
     <div class="card collapsible">
       <div class="card-title"><span>🌡️</span> Temperature (live)</div>
+      <div class="card-summary" id="sum-temp"></div>
       <div id="temps-current" style="margin-bottom:10px;">No sensor data available.</div>
       <canvas id="temp-chart" class="mini-chart" height="90"></canvas>
       <div class="chart-label">
@@ -437,6 +460,7 @@
 
     <div class="card collapsible">
       <div class="card-title"><span>🔋</span> Battery &amp; Sensor Notes</div>
+      <div class="card-summary" id="sum-batt"></div>
       <div id="battery-wrap" style="display:none;">
         <div id="battery-detail"></div>
       </div>
@@ -447,12 +471,14 @@
   <!-- Row 4: Network -->
   <div class="card collapsible collapsed" id="card-network">
     <div class="card-title"><span>🌐</span> Network I/O</div>
+    <div class="card-summary" id="sum-net"></div>
     <div id="net-wrap"></div>
   </div>
 
   <!-- Row 5: Services -->
   <div class="card collapsible">
     <div class="card-title"><span>🔧</span> Systemd Services</div>
+    <div class="card-summary" id="sum-svc"></div>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>Unit</th><th>Load</th><th>Active</th><th>Sub</th><th>Description</th></tr></thead>
@@ -464,6 +490,7 @@
   <!-- Row 6: Processes -->
   <div class="card collapsible">
     <div class="card-title"><span>📋</span> Top Processes (by CPU)</div>
+    <div class="card-summary" id="sum-proc"></div>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>PID</th><th>Name</th><th>User</th><th>Status</th><th>CPU%</th><th>Mem%</th><th>Threads</th><th>Started</th></tr></thead>
@@ -1265,6 +1292,185 @@ function update(d) {
   lu.textContent = new Date().toLocaleTimeString();
   lu.classList.add('flash');
   setTimeout(() => lu.classList.remove('flash'), 500);
+
+  // Collapsed-card summary widgets
+  try { renderSummaries(d); } catch(e) { console.warn('summary render failed', e); }
+}
+
+// ── Collapsed-card summary widgets ───────────────────────────────────────────
+function _sumColor(t) {
+  return t === 'bad' ? 'var(--red)' : t === 'warn' ? 'var(--orange)' : 'var(--green)';
+}
+function _sumBar(pct, color) {
+  pct = Math.max(0, Math.min(100, pct));
+  return `<div class="sum-bar"><div style="width:${pct.toFixed(1)}%;background:${color}"></div></div>`;
+}
+function renderSummaries(d) {
+  // System
+  const sys = document.getElementById('sum-system');
+  if (sys) {
+    const cores = d.cpu.cores_physical || 1;
+    const load1 = d.cpu.load_avg[0];
+    const loadT = load1 > cores*2 ? 'bad' : load1 > cores ? 'warn' : 'good';
+    sys.innerHTML = `
+      <div class="sum-row"><span class="sum-lbl">Uptime</span><span class="sum-val">${d.uptime}</span></div>
+      <div class="sum-row"><span class="sum-lbl">Load 1m</span>
+        <span class="sum-val ${loadT==='bad'?'alert-bad':loadT==='warn'?'alert-warn':''}">${load1.toFixed(2)}</span>
+        <span class="sum-mini">/ ${cores} cores</span></div>`;
+  }
+
+  // CPU overall
+  const cpu = document.getElementById('sum-cpu');
+  if (cpu) {
+    const t = tier(d.cpu.percent, THRESHOLDS.cpu);
+    cpu.innerHTML = `
+      <div class="sum-row">
+        <span class="sum-val" style="color:${_sumColor(t)};font-size:18px;min-width:54px">${d.cpu.percent.toFixed(1)}%</span>
+        ${_sumBar(d.cpu.percent, _sumColor(t))}
+      </div>`;
+  }
+
+  // Memory
+  const mem = document.getElementById('sum-mem');
+  if (mem) {
+    const tM = tier(d.memory.percent, THRESHOLDS.mem);
+    const tS = d.swap.percent >= THRESHOLDS.swap.crit ? 'bad' : d.swap.percent >= THRESHOLDS.swap.warn ? 'warn' : 'good';
+    mem.innerHTML = `
+      <div class="sum-row"><span class="sum-lbl">RAM</span>
+        <span class="sum-val" style="color:${_sumColor(tM)};min-width:46px">${d.memory.percent.toFixed(0)}%</span>
+        ${_sumBar(d.memory.percent, _sumColor(tM))}
+        <span class="sum-mini">${fmt(d.memory.used)}/${fmt(d.memory.total)}</span></div>
+      <div class="sum-row"><span class="sum-lbl">Swap</span>
+        <span class="sum-val" style="color:${_sumColor(tS)};min-width:46px">${d.swap.percent.toFixed(0)}%</span>
+        ${_sumBar(d.swap.percent, _sumColor(tS))}</div>`;
+  }
+
+  // Per-Core CPU
+  const cores = document.getElementById('sum-cores');
+  if (cores && d.cpu.per_core) {
+    const pc = d.cpu.per_core;
+    const avg = pc.reduce((a,b)=>a+b,0) / pc.length;
+    const peak = Math.max(...pc);
+    const peakIdx = pc.indexOf(peak);
+    const dots = pc.map(v => {
+      const t = tier(v, THRESHOLDS.cpu);
+      return `<span class="sum-dot" title="Core ${pc.indexOf(v)}: ${v.toFixed(0)}%" style="background:${_sumColor(t)};opacity:${0.35 + 0.65*(v/100)}"></span>`;
+    }).join('');
+    cores.innerHTML = `
+      <div class="sum-row"><span class="sum-lbl">${pc.length} cores</span>
+        <span class="sum-mini">avg <strong>${avg.toFixed(0)}%</strong></span>
+        <span class="sum-mini">peak <strong>${peak.toFixed(0)}%</strong> (#${peakIdx})</span></div>
+      <div class="sum-row"><div class="sum-dots">${dots}</div></div>`;
+  }
+
+  // Storage overview
+  const stor = document.getElementById('sum-storage');
+  if (stor && d.disks) {
+    const phys = d.disks.filter(x => !['tmpfs','devtmpfs','squashfs','overlay'].includes(x.fstype));
+    const tot = phys.reduce((a,x)=>a+x.total,0);
+    const used = phys.reduce((a,x)=>a+x.used,0);
+    const pct = tot ? (used/tot*100) : 0;
+    const worst = phys.reduce((a,x)=>x.percent>(a?a.percent:0)?x:a, null);
+    const t = tier(pct, THRESHOLDS.disk);
+    stor.innerHTML = `
+      <div class="sum-row"><span class="sum-lbl">Total</span>
+        <span class="sum-val" style="color:${_sumColor(t)};min-width:46px">${pct.toFixed(0)}%</span>
+        ${_sumBar(pct, _sumColor(t))}
+        <span class="sum-mini">${fmt(used)}/${fmt(tot)}</span></div>
+      ${worst ? `<div class="sum-row"><span class="sum-lbl">Hottest</span>
+        <span class="sum-mini"><strong>${worst.mountpoint}</strong> ${worst.percent.toFixed(0)}%</span></div>` : ''}`;
+  }
+
+  // Disk per mount
+  const disks = document.getElementById('sum-disks');
+  if (disks && d.disks) {
+    const phys = d.disks.filter(x => !['tmpfs','devtmpfs','squashfs','overlay'].includes(x.fstype)).slice(0, 4);
+    disks.innerHTML = phys.map(x => {
+      const t = tier(x.percent, THRESHOLDS.disk);
+      return `<div class="sum-row"><span class="sum-lbl" style="min-width:80px;text-transform:none">${x.mountpoint}</span>
+        <span class="sum-val" style="color:${_sumColor(t)};min-width:40px">${x.percent.toFixed(0)}%</span>
+        ${_sumBar(x.percent, _sumColor(t))}</div>`;
+    }).join('') || '<div class="sum-mini">no disks</div>';
+  }
+
+  // Temperature
+  const temp = document.getElementById('sum-temp');
+  if (temp) {
+    let maxV = null, maxLbl = '';
+    Object.entries(d.temperatures || {}).forEach(([name, arr]) => {
+      arr.forEach(e => { if (maxV === null || e.current > maxV) { maxV = e.current; maxLbl = `${name}/${e.label||'sensor'}`; } });
+    });
+    if (maxV === null) {
+      temp.innerHTML = '<div class="sum-mini">No sensors</div>';
+    } else {
+      const t = tier(maxV, THRESHOLDS.temp);
+      temp.innerHTML = `
+        <div class="sum-row">
+          <span class="sum-lbl">Max</span>
+          <span class="sum-val" style="color:${_sumColor(t)};font-size:16px">${maxV.toFixed(0)}°C</span>
+          <span class="sum-mini" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">${maxLbl}</span>
+        </div>`;
+    }
+  }
+
+  // Battery
+  const batt = document.getElementById('sum-batt');
+  if (batt) {
+    if (d.battery) {
+      const b = d.battery;
+      const bt = tier(b.percent, THRESHOLDS.battery, true);
+      batt.innerHTML = `
+        <div class="sum-row">
+          <span class="sum-val" style="color:${_sumColor(bt)};min-width:46px">${b.percent.toFixed(0)}%</span>
+          ${_sumBar(b.percent, _sumColor(bt))}
+          <span class="sum-mini">${b.power_plugged ? '🔌 plugged' : '🔋 batt'}</span>
+        </div>`;
+    } else {
+      batt.innerHTML = '<div class="sum-mini">No battery</div>';
+    }
+  }
+
+  // Network
+  const net = document.getElementById('sum-net');
+  if (net) {
+    const tput = d.net_throughput || {};
+    let tx = 0, rx = 0;
+    Object.values(tput).forEach(v => { tx += (v.tx_bps || 0); rx += (v.rx_bps || 0); });
+    const nics = Object.keys(tput).length;
+    net.innerHTML = `
+      <div class="sum-row">
+        <span class="sum-lbl">↑ TX</span><span class="sum-val">${fmtBps(tx)}</span>
+        <span class="sum-lbl" style="margin-left:8px">↓ RX</span><span class="sum-val">${fmtBps(rx)}</span>
+      </div>
+      <div class="sum-row"><span class="sum-mini">${nics} interface${nics===1?'':'s'}</span></div>`;
+  }
+
+  // Services
+  const svc = document.getElementById('sum-svc');
+  if (svc && d.services) {
+    const total = d.services.length;
+    const active = d.services.filter(s => s.active === 'active').length;
+    const failed = d.services.filter(s => s.active === 'failed').length;
+    svc.innerHTML = `
+      <div class="sum-row">
+        <span class="sum-pill" style="color:var(--green)">● ${active} active</span>
+        <span class="sum-pill" style="color:${failed?'var(--red)':'var(--muted)'}">● ${failed} failed</span>
+        <span class="sum-mini">${total} total</span>
+      </div>`;
+  }
+
+  // Processes
+  const proc = document.getElementById('sum-proc');
+  if (proc && d.processes) {
+    const top3 = d.processes.slice(0, 3);
+    proc.innerHTML = `
+      <div class="sum-row"><span class="sum-mini">${d.processes.length} tracked · top by CPU:</span></div>
+      ${top3.map(p => `<div class="sum-row">
+        <span class="sum-lbl" style="text-transform:none;min-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.name}</span>
+        <span class="sum-val">${(p.cpu_percent||0).toFixed(1)}%</span>
+        <span class="sum-mini">mem ${(p.memory_percent||0).toFixed(1)}%</span>
+      </div>`).join('')}`;
+  }
 }
 
 // ── Collapsible sections + persistence ───────────────────────────────────────

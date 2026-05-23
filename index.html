@@ -37,24 +37,54 @@
   #power-banner {
     background: var(--power-bg);
     border-bottom: 1px solid var(--power-border);
-    padding: 10px 24px;
+    padding: 12px 24px;
     display: flex;
-    align-items: center;
-    gap: 24px;
+    align-items: stretch;
+    gap: 20px;
     flex-wrap: wrap;
   }
   #power-banner .pw-title {
     font-size: 11px; font-weight: 700; text-transform: uppercase;
     letter-spacing: .8px; color: var(--power-text); flex-shrink: 0;
+    align-self: center;
   }
-  .pw-stat { display: flex; flex-direction: column; align-items: center; }
-  .pw-stat .pw-val { font-size: 22px; font-weight: 700; color: var(--power-text); line-height: 1; }
-  .pw-stat .pw-lbl { font-size: 10px; color: var(--muted); margin-top: 2px; white-space: nowrap; }
 
-  .pw-divider { width: 1px; height: 36px; background: var(--power-border); flex-shrink: 0; }
+  /* Watts chart */
+  #pw-chart-wrap {
+    flex: 1 1 260px;
+    min-width: 200px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  #pw-chart-header {
+    display: flex; align-items: baseline; gap: 8px;
+  }
+  #pw-watts-big {
+    font-size: 26px; font-weight: 700; color: var(--power-text); line-height: 1;
+  }
+  #pw-watts-unit { font-size: 12px; color: var(--muted); }
+  #pw-chart-canvas {
+    width: 100%; height: 60px; display: block; border-radius: 4px;
+  }
+  #pw-chart-axis {
+    display: flex; justify-content: space-between;
+    font-size: 10px; color: var(--muted); margin-top: 1px;
+  }
+
+  /* Cost stats */
+  #pw-costs {
+    display: flex; flex-direction: column; justify-content: center; gap: 4px;
+    flex-shrink: 0;
+  }
+  .pw-cost-row { display: flex; gap: 8px; align-items: baseline; font-size: 12px; }
+  .pw-cost-lbl { color: var(--muted); width: 52px; }
+  .pw-cost-val { color: var(--power-text); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .pw-divider-v { width: 1px; background: var(--power-border); flex-shrink: 0; align-self: stretch; }
 
   /* rate editor */
-  #rate-form { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+  #rate-form { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; align-self: center; }
   #rate-form label { font-size: 11px; color: var(--muted); white-space: nowrap; }
   #rate-input {
     width: 72px; background: #0d1117; border: 1px solid var(--power-border);
@@ -70,7 +100,7 @@
   #rate-save:hover { background: #7a5500; }
   #rate-feedback { font-size: 11px; color: var(--green); }
 
-  #power-unavail { font-size: 12px; color: var(--muted); font-style: italic; }
+  #power-unavail { font-size: 12px; color: var(--muted); font-style: italic; align-self: center; }
 
   main { padding: 16px 20px; display: grid; gap: 16px; }
 
@@ -157,21 +187,35 @@
 <div id="power-banner">
   <div class="pw-title">⚡ Power</div>
 
-  <div id="power-live">
-    <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;">
-      <div class="pw-stat"><div class="pw-val" id="pw-watts">—</div><div class="pw-lbl">Watts now</div></div>
-      <div class="pw-divider"></div>
-      <div class="pw-stat"><div class="pw-val" id="pw-hour">—</div><div class="pw-lbl">€ / hour</div></div>
-      <div class="pw-stat"><div class="pw-val" id="pw-day">—</div><div class="pw-lbl">€ / day</div></div>
-      <div class="pw-stat"><div class="pw-val" id="pw-month">—</div><div class="pw-lbl">€ / month</div></div>
-      <div class="pw-stat"><div class="pw-val" id="pw-year">—</div><div class="pw-lbl">€ / year</div></div>
+  <div id="power-live" style="display:flex;align-items:stretch;gap:16px;flex:1;min-width:0;">
+    <!-- Left: live chart -->
+    <div id="pw-chart-wrap">
+      <div id="pw-chart-header">
+        <span id="pw-watts-big">—</span>
+        <span id="pw-watts-unit">W now</span>
+      </div>
+      <canvas id="pw-chart-canvas" height="60"></canvas>
+      <div id="pw-chart-axis">
+        <span id="pw-axis-old">—</span>
+        <span style="color:var(--power-text)">now</span>
+      </div>
+    </div>
+
+    <div class="pw-divider-v"></div>
+
+    <!-- Right: cost breakdown -->
+    <div id="pw-costs">
+      <div class="pw-cost-row"><span class="pw-cost-lbl">€ / hr</span><span class="pw-cost-val" id="pw-hour">—</span></div>
+      <div class="pw-cost-row"><span class="pw-cost-lbl">€ / day</span><span class="pw-cost-val" id="pw-day">—</span></div>
+      <div class="pw-cost-row"><span class="pw-cost-lbl">€ / mo</span><span class="pw-cost-val" id="pw-month">—</span></div>
+      <div class="pw-cost-row"><span class="pw-cost-lbl">€ / yr</span><span class="pw-cost-val" id="pw-year">—</span></div>
     </div>
   </div>
 
   <span id="power-unavail" style="display:none;">Watts unavailable — RAPL permissions may need fixing (run setup_rapl_permissions.sh with sudo)</span>
 
   <!-- Rate editor -->
-  <div id="rate-form">
+  <div id="rate-form" style="margin-left:auto;">
     <label for="rate-input">Rate (€/kWh):</label>
     <input id="rate-input" type="number" step="0.01" min="0.01" value="0.35"/>
     <button id="rate-save" onclick="saveRate()">Save</button>
@@ -308,6 +352,99 @@ function setGauge(barId, valId, pct) {
   val.textContent = pct.toFixed(1) + '%';
 }
 
+// ── Watts history ring-buffer (last 60 samples × 3 s = ~3 min window) ─────────
+const PW_HISTORY_MAX = 60;
+const _pwHistory = [];   // [{ts, watts}, ...]
+
+function _pwChartDraw() {
+  const canvas = document.getElementById('pw-chart-canvas');
+  if (!canvas) return;
+  // Match CSS display size
+  const rect = canvas.getBoundingClientRect();
+  const dpr  = window.devicePixelRatio || 1;
+  const W    = rect.width  || canvas.offsetWidth  || 300;
+  const H    = rect.height || canvas.offsetHeight || 60;
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  if (_pwHistory.length < 2) {
+    ctx.fillStyle = 'rgba(255,167,38,.08)';
+    ctx.fillRect(0, 0, W, H);
+    return;
+  }
+
+  const vals = _pwHistory.map(p => p.watts);
+  const minW = Math.max(0, Math.min(...vals) * 0.9);
+  const maxW = Math.max(1,  Math.max(...vals) * 1.1);
+  const range = maxW - minW || 1;
+
+  const xStep = W / (PW_HISTORY_MAX - 1);
+
+  const xOf = i => i * xStep;
+  const yOf = w => H - ((w - minW) / range) * (H - 4) - 2;
+
+  // Background
+  ctx.fillStyle = 'rgba(255,167,38,.06)';
+  ctx.fillRect(0, 0, W, H);
+
+  // Grid lines (3 horizontal)
+  ctx.strokeStyle = 'rgba(255,167,38,.12)';
+  ctx.lineWidth = 1;
+  for (let i = 1; i <= 3; i++) {
+    const y = Math.round(H * i / 4) + 0.5;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  // Fill area under line
+  const startIdx = PW_HISTORY_MAX - _pwHistory.length;
+  const gradient = ctx.createLinearGradient(0, 0, 0, H);
+  gradient.addColorStop(0, 'rgba(255,167,38,.35)');
+  gradient.addColorStop(1, 'rgba(255,167,38,.02)');
+  ctx.beginPath();
+  _pwHistory.forEach((p, i) => {
+    const x = xOf(startIdx + i);
+    const y = yOf(p.watts);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  const lastX = xOf(startIdx + _pwHistory.length - 1);
+  ctx.lineTo(lastX, H);
+  ctx.lineTo(xOf(startIdx), H);
+  ctx.closePath();
+  ctx.fillStyle = gradient;
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  ctx.strokeStyle = '#ffa726';
+  ctx.lineWidth = 1.8;
+  ctx.lineJoin = 'round';
+  _pwHistory.forEach((p, i) => {
+    const x = xOf(startIdx + i);
+    const y = yOf(p.watts);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Dot at latest point
+  if (_pwHistory.length > 0) {
+    const lx = xOf(startIdx + _pwHistory.length - 1);
+    const ly = yOf(_pwHistory[_pwHistory.length - 1].watts);
+    ctx.beginPath();
+    ctx.arc(lx, ly, 3, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffa726';
+    ctx.fill();
+  }
+
+  // Y-axis labels (min/max)
+  ctx.fillStyle = 'rgba(139,148,158,.7)';
+  ctx.font = `${9 * dpr / dpr}px 'Segoe UI', sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.fillText(maxW.toFixed(0) + 'W', 2, 10);
+  ctx.fillText(minW.toFixed(0) + 'W', 2, H - 2);
+}
+
 // ── Power banner update ────────────────────────────────────────────────────────
 function updatePower(pw) {
   if (!pw || pw.watts === null || pw.watts === undefined) {
@@ -315,16 +452,32 @@ function updatePower(pw) {
     document.getElementById('power-unavail').style.display = 'inline';
     return;
   }
-  document.getElementById('power-live').style.display = 'block';
+  document.getElementById('power-live').style.display = 'flex';
   document.getElementById('power-unavail').style.display = 'none';
 
-  document.getElementById('pw-watts').textContent = pw.watts.toFixed(1) + ' W';
+  // Push to history ring-buffer
+  _pwHistory.push({ ts: Date.now(), watts: pw.watts });
+  if (_pwHistory.length > PW_HISTORY_MAX) _pwHistory.shift();
 
+  // Big number
+  document.getElementById('pw-watts-big').textContent = pw.watts.toFixed(1);
+
+  // Time axis label
+  if (_pwHistory.length >= 2) {
+    const spanSec = (_pwHistory[_pwHistory.length - 1].ts - _pwHistory[0].ts) / 1000;
+    const spanMin = (spanSec / 60).toFixed(0);
+    document.getElementById('pw-axis-old').textContent = spanSec >= 60 ? `${spanMin}m ago` : `${Math.round(spanSec)}s ago`;
+  }
+
+  // Draw chart
+  _pwChartDraw();
+
+  // Cost rows
   const c = pw.cost || {};
-  document.getElementById('pw-hour').textContent  = c.per_hour  !== undefined ? '€ ' + c.per_hour.toFixed(4)  : '—';
-  document.getElementById('pw-day').textContent   = c.per_day   !== undefined ? '€ ' + c.per_day.toFixed(3)   : '—';
-  document.getElementById('pw-month').textContent = c.per_month !== undefined ? '€ ' + c.per_month.toFixed(2) : '—';
-  document.getElementById('pw-year').textContent  = c.per_year  !== undefined ? '€ ' + c.per_year.toFixed(2)  : '—';
+  document.getElementById('pw-hour').textContent  = c.per_hour  !== undefined ? c.per_hour.toFixed(4)  : '—';
+  document.getElementById('pw-day').textContent   = c.per_day   !== undefined ? c.per_day.toFixed(3)   : '—';
+  document.getElementById('pw-month').textContent = c.per_month !== undefined ? c.per_month.toFixed(2) : '—';
+  document.getElementById('pw-year').textContent  = c.per_year  !== undefined ? c.per_year.toFixed(2)  : '—';
 
   // Keep the rate input in sync (if user hasn't focused it)
   const inp = document.getElementById('rate-input');
@@ -332,6 +485,9 @@ function updatePower(pw) {
     inp.value = pw.rate_eur_per_kwh;
   }
 }
+
+// Redraw chart on window resize so canvas pixel count stays correct
+window.addEventListener('resize', _pwChartDraw);
 
 // ── Rate save ─────────────────────────────────────────────────────────────────
 async function saveRate() {

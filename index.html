@@ -121,6 +121,33 @@
   .card-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
   .card-title span { font-size: 14px; }
 
+  /* Collapsible cards */
+  .card.collapsible > .card-title { cursor: pointer; user-select: none; position: relative; padding-right: 18px; }
+  .card.collapsible > .card-title::after {
+    content: '▾'; position: absolute; right: 2px; top: 50%;
+    transform: translateY(-50%); transition: transform .15s ease;
+    font-size: 11px; opacity: .55;
+  }
+  .card.collapsible.collapsed > .card-title { margin-bottom: 0; }
+  .card.collapsible.collapsed > .card-title::after { transform: translateY(-50%) rotate(-90deg); }
+  .card.collapsible.collapsed > *:not(.card-title) { display: none !important; }
+  .card.collapsible > .card-title:hover::after { opacity: 1; color: var(--blue); }
+
+  /* Interactive chart tooltip */
+  #chart-tooltip {
+    position: fixed; pointer-events: none; z-index: 9999;
+    background: rgba(13,17,23,.96);
+    border: 1px solid var(--border); border-radius: 4px;
+    padding: 5px 8px; font-size: 11px; color: var(--text);
+    font-family: 'Segoe UI', sans-serif; white-space: nowrap;
+    box-shadow: 0 4px 14px rgba(0,0,0,.45);
+    display: none; line-height: 1.4;
+  }
+  #chart-tooltip .tt-row { display: flex; gap: 8px; justify-content: space-between; }
+  #chart-tooltip .tt-lbl { color: var(--muted); }
+  #chart-tooltip .tt-val { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .mini-chart, #pw-chart-canvas { cursor: crosshair; }
+
   /* Gauge */
   .gauge-wrap { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
   .gauge-label { width: 80px; color: var(--muted); font-size: 12px; flex-shrink: 0; }
@@ -333,7 +360,7 @@
 
   <!-- Row 1: Uptime / CPU summary / Memory summary -->
   <div class="grid-3">
-    <div class="card">
+    <div class="card collapsible">
       <div class="card-title"><span>🕐</span> System</div>
       <div class="stat-row"><span class="k">Hostname</span><span class="v" id="s-hostname">—</span></div>
       <div class="stat-row"><span class="k">Uptime</span><span class="v uptime-val" id="s-uptime">—</span></div>
@@ -342,7 +369,7 @@
       <div class="stat-row"><span class="k">Freq (current)</span><span class="v" id="s-freq">—</span></div>
     </div>
 
-    <div class="card">
+    <div class="card collapsible">
       <div class="card-title"><span>🖥️</span> CPU Overall</div>
       <div style="display:flex;gap:16px;align-items:flex-end;margin-bottom:12px;">
         <div><div class="big-stat" id="cpu-big">—</div><div class="big-unit">% utilisation</div></div>
@@ -354,7 +381,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card collapsible">
       <div class="card-title"><span>🧠</span> Memory</div>
       <div style="display:flex;gap:16px;align-items:flex-end;margin-bottom:12px;">
         <div><div class="big-stat" id="mem-big">—</div><div class="big-unit">% used</div></div>
@@ -376,19 +403,19 @@
   </div>
 
   <!-- Row 2: Per-core CPU -->
-  <div class="card">
+  <div class="card collapsible">
     <div class="card-title"><span>⚙️</span> Per-Core CPU Usage</div>
     <div id="core-grid"></div>
   </div>
 
   <!-- Row 3: Storage overview + Disk usage -->
   <div class="grid-2">
-    <div class="card">
+    <div class="card collapsible">
       <div class="card-title"><span>📊</span> Storage Overview (Total / Used / Free)</div>
       <div id="storage-overview-wrap"></div>
     </div>
 
-    <div class="card">
+    <div class="card collapsible">
       <div class="card-title"><span>💾</span> Disk Usage (per mount)</div>
       <div id="disks-wrap"></div>
     </div>
@@ -396,7 +423,7 @@
 
   <!-- Row 4: Temperature chart + battery -->
   <div class="grid-2">
-    <div class="card">
+    <div class="card collapsible">
       <div class="card-title"><span>🌡️</span> Temperature (live)</div>
       <div id="temps-current" style="margin-bottom:10px;">No sensor data available.</div>
       <canvas id="temp-chart" class="mini-chart" height="90"></canvas>
@@ -408,7 +435,7 @@
       <div id="temp-alert" style="margin-top:6px;"></div>
     </div>
 
-    <div class="card">
+    <div class="card collapsible">
       <div class="card-title"><span>🔋</span> Battery &amp; Sensor Notes</div>
       <div id="battery-wrap" style="display:none;">
         <div id="battery-detail"></div>
@@ -418,13 +445,13 @@
   </div>
 
   <!-- Row 4: Network -->
-  <div class="card">
+  <div class="card collapsible collapsed" id="card-network">
     <div class="card-title"><span>🌐</span> Network I/O</div>
     <div id="net-wrap"></div>
   </div>
 
   <!-- Row 5: Services -->
-  <div class="card">
+  <div class="card collapsible">
     <div class="card-title"><span>🔧</span> Systemd Services</div>
     <div class="tbl-wrap">
       <table>
@@ -435,7 +462,7 @@
   </div>
 
   <!-- Row 6: Processes -->
-  <div class="card">
+  <div class="card collapsible">
     <div class="card-title"><span>📋</span> Top Processes (by CPU)</div>
     <div class="tbl-wrap">
       <table>
@@ -446,6 +473,8 @@
   </div>
 
 </main>
+
+<div id="chart-tooltip"></div>
 
 <script>
 const fmt = (bytes) => {
@@ -564,6 +593,8 @@ function drawLineChart(canvas, data, opts = {}) {
   const maxPoints = opts.maxPoints || 60;
   const yFmt      = opts.yFormatter || (v => v.toFixed(0));
   const yMin0     = opts.yMin0 !== false; // default true
+  const sampleSec = opts.sampleSec || 3;
+  const valueLabel = opts.valueLabel || 'Value';
 
   if (!data || data.length < 2) {
     ctx.fillStyle = fillBase + '.05)';
@@ -655,6 +686,17 @@ function drawLineChart(canvas, data, opts = {}) {
   ctx.textAlign = 'left';
   ctx.fillText(yFmt(maxV), 2, 10);
   ctx.fillText(yFmt(minV), 2, H - 2);
+
+  // Stash meta for hover tooltip
+  canvas._chartMeta = {
+    data: data.slice(),
+    W, H,
+    startIdx, xStep,
+    yOf, sampleSec,
+    valueLabel,
+    yFmt,
+    color,
+  };
 }
 
 // ── Watts history ring-buffer (last 60 samples × 3 s = ~3 min window) ─────────
@@ -748,6 +790,18 @@ function _pwChartDraw() {
   ctx.textAlign = 'left';
   ctx.fillText(maxW.toFixed(0) + 'W', 2, 10);
   ctx.fillText(minW.toFixed(0) + 'W', 2, H - 2);
+
+  // Stash meta for hover tooltip (timestamped points)
+  canvas._chartMeta = {
+    data: _pwHistory.map(p => p.watts),
+    timestamps: _pwHistory.map(p => p.ts),
+    W, H,
+    startIdx, xStep,
+    yOf,
+    valueLabel: 'Power',
+    yFmt: v => v.toFixed(1) + ' W',
+    color: '#ffa726',
+  };
 }
 
 // ── Power banner update ────────────────────────────────────────────────────────
@@ -1013,6 +1067,7 @@ function update(d) {
       critLine: THRESHOLDS.temp.crit,
       minMax: 90,
       yMin0: false,
+      valueLabel: 'Temp',
     });
     // Stats
     const minH = Math.min(..._tempHistory);
@@ -1160,9 +1215,11 @@ function update(d) {
     if (!h) return;
     drawLineChart(document.getElementById('net-tx-' + safe), h.tx, {
       color: '#bc8cff', fillBase: 'rgba(188,140,255,', yFormatter: v => fmtBps(v),
+      valueLabel: nic + ' ↑ TX',
     });
     drawLineChart(document.getElementById('net-rx-' + safe), h.rx, {
       color: '#58a6ff', fillBase: 'rgba(88,166,255,', yFormatter: v => fmtBps(v),
+      valueLabel: nic + ' ↓ RX',
     });
   });
 
@@ -1209,6 +1266,173 @@ function update(d) {
   lu.classList.add('flash');
   setTimeout(() => lu.classList.remove('flash'), 500);
 }
+
+// ── Collapsible sections + persistence ───────────────────────────────────────
+(function setupCollapsibles() {
+  const STORAGE_KEY = 'sysmon-collapsed-v1';
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch(e) {}
+
+  // Assign stable keys based on the card title text, and restore saved state
+  document.querySelectorAll('.card.collapsible').forEach((card, idx) => {
+    const titleEl = card.querySelector('.card-title');
+    if (!titleEl) return;
+    const key = card.id || ('card-' + titleEl.textContent.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-'));
+    card.dataset.collapseKey = key;
+    if (Object.prototype.hasOwnProperty.call(saved, key)) {
+      card.classList.toggle('collapsed', !!saved[key]);
+    }
+    titleEl.setAttribute('role', 'button');
+    titleEl.setAttribute('tabindex', '0');
+    titleEl.setAttribute('aria-expanded', String(!card.classList.contains('collapsed')));
+    titleEl.addEventListener('click', () => {
+      card.classList.toggle('collapsed');
+      titleEl.setAttribute('aria-expanded', String(!card.classList.contains('collapsed')));
+      saved[key] = card.classList.contains('collapsed');
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); } catch(e) {}
+      // Trigger redraw of any visible charts after expand
+      if (!card.classList.contains('collapsed')) {
+        setTimeout(() => {
+          if (typeof _pwChartDraw === 'function') _pwChartDraw();
+          // The next fetchStats tick will refresh other charts naturally.
+        }, 30);
+      }
+    });
+    titleEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); titleEl.click(); }
+    });
+  });
+})();
+
+// ── Interactive hover tooltip for line charts ────────────────────────────────
+(function setupChartHover() {
+  const tip = document.getElementById('chart-tooltip');
+  let overlayCanvas = null;  // crosshair overlay
+  let lastCanvas = null;
+
+  function ensureOverlay(target) {
+    // We draw the crosshair on the target canvas itself by re-using its 2D ctx.
+    // Easier: we draw on a transient overlay positioned over the target.
+    if (!overlayCanvas) {
+      overlayCanvas = document.createElement('canvas');
+      overlayCanvas.style.position = 'absolute';
+      overlayCanvas.style.pointerEvents = 'none';
+      overlayCanvas.style.zIndex = '5';
+      document.body.appendChild(overlayCanvas);
+    }
+    return overlayCanvas;
+  }
+
+  function clearOverlay() {
+    if (!overlayCanvas) return;
+    overlayCanvas.style.display = 'none';
+  }
+
+  function fmtTimeAgo(secAgo) {
+    if (secAgo < 60) return Math.round(secAgo) + 's ago';
+    const m = Math.floor(secAgo / 60);
+    const s = Math.round(secAgo - m * 60);
+    return m + 'm ' + (s ? s + 's ' : '') + 'ago';
+  }
+
+  function onMove(e) {
+    const canvas = e.target.closest('canvas.mini-chart, canvas#pw-chart-canvas');
+    if (!canvas || !canvas._chartMeta) { tip.style.display = 'none'; clearOverlay(); lastCanvas = null; return; }
+    const meta = canvas._chartMeta;
+    const rect = canvas.getBoundingClientRect();
+    const xCss = e.clientX - rect.left;
+    if (xCss < 0 || xCss > rect.width) { tip.style.display = 'none'; clearOverlay(); return; }
+
+    // Map xCss back to data index. drawLineChart uses xOf(i) where i ranges over
+    // [startIdx..startIdx+data.length-1] across a canvas of width meta.W.
+    // xCss is in CSS pixels, meta.W is also CSS pixels (it comes from getBoundingClientRect).
+    const xRatio = xCss / rect.width;
+    const xGlobal = xRatio * meta.W;
+    const iRaw = Math.round(xGlobal / meta.xStep) - meta.startIdx;
+    const i = Math.max(0, Math.min(meta.data.length - 1, iRaw));
+    const value = meta.data[i];
+    if (value === undefined) { tip.style.display = 'none'; clearOverlay(); return; }
+
+    // Compute timestamp / seconds-ago for the hovered point.
+    let timeStr;
+    if (meta.timestamps && meta.timestamps[i] != null) {
+      const secAgo = (Date.now() - meta.timestamps[i]) / 1000;
+      timeStr = fmtTimeAgo(secAgo) + '  (' + new Date(meta.timestamps[i]).toLocaleTimeString() + ')';
+    } else {
+      // History buffers are filled left→right with newest on the right.
+      const sampleSec = meta.sampleSec || 3;
+      const secAgo = (meta.data.length - 1 - i) * sampleSec;
+      timeStr = fmtTimeAgo(secAgo);
+    }
+
+    // Update tooltip text
+    tip.innerHTML =
+      '<div class="tt-row"><span class="tt-lbl">' + (meta.valueLabel || 'Value') + '</span>' +
+      '<span class="tt-val" style="color:' + meta.color + '">' + meta.yFmt(value) + '</span></div>' +
+      '<div class="tt-row"><span class="tt-lbl">When</span><span class="tt-val">' + timeStr + '</span></div>';
+    tip.style.display = 'block';
+
+    // Position tooltip just above-right of cursor, flipping near right edge.
+    const tipRect = tip.getBoundingClientRect();
+    let tx = e.clientX + 12;
+    let ty = e.clientY - tipRect.height - 12;
+    if (tx + tipRect.width > window.innerWidth - 8) tx = e.clientX - tipRect.width - 12;
+    if (ty < 8) ty = e.clientY + 14;
+    tip.style.left = tx + 'px';
+    tip.style.top  = ty + 'px';
+
+    // Draw crosshair overlay
+    const dpr = window.devicePixelRatio || 1;
+    const ov = ensureOverlay(canvas);
+    ov.style.left = (rect.left + window.scrollX) + 'px';
+    ov.style.top  = (rect.top + window.scrollY) + 'px';
+    ov.style.width = rect.width + 'px';
+    ov.style.height = rect.height + 'px';
+    ov.width  = rect.width * dpr;
+    ov.height = rect.height * dpr;
+    ov.style.display = 'block';
+    const octx = ov.getContext('2d');
+    octx.setTransform(dpr * (rect.width / meta.W), 0, 0, dpr * (rect.height / meta.H), 0, 0);
+    octx.clearRect(0, 0, meta.W, meta.H);
+
+    const px = (i + meta.startIdx) * meta.xStep;
+    const py = meta.yOf(value);
+
+    // Vertical crosshair
+    octx.strokeStyle = 'rgba(139,148,158,.5)';
+    octx.lineWidth = 1;
+    octx.setLineDash([3,3]);
+    octx.beginPath();
+    octx.moveTo(px, 0); octx.lineTo(px, meta.H);
+    octx.stroke();
+    octx.setLineDash([]);
+
+    // Hover dot
+    octx.beginPath();
+    octx.arc(px, py, 4, 0, Math.PI * 2);
+    octx.fillStyle = meta.color;
+    octx.fill();
+    octx.strokeStyle = 'rgba(255,255,255,.9)';
+    octx.lineWidth = 1.5;
+    octx.stroke();
+
+    lastCanvas = canvas;
+  }
+
+  function onLeave(e) {
+    // Hide tooltip when leaving any tracked chart and not entering another.
+    const to = e.relatedTarget;
+    if (!to || !to.closest || !to.closest('canvas.mini-chart, canvas#pw-chart-canvas')) {
+      tip.style.display = 'none';
+      clearOverlay();
+      lastCanvas = null;
+    }
+  }
+
+  document.addEventListener('mousemove', onMove, { passive: true });
+  document.addEventListener('mouseout', onLeave, { passive: true });
+  window.addEventListener('scroll', () => { tip.style.display = 'none'; clearOverlay(); }, { passive: true });
+})();
 
 async function fetchStats() {
   try {

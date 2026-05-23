@@ -15,6 +15,24 @@ import subprocess
 
 ROOT = Path(__file__).parent
 
+# On Windows, prevent a console window from flashing when invoking PowerShell.
+_SUBPROCESS_KWARGS = {}
+if platform.system() == "Windows":
+    _CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+    _SUBPROCESS_KWARGS["creationflags"] = _CREATE_NO_WINDOW
+
+
+def _run_powershell(script, timeout=1.5):
+    """Run a PowerShell snippet quietly. Returns stripped stdout or '' on failure."""
+    try:
+        out = subprocess.check_output(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            text=True, timeout=timeout, **_SUBPROCESS_KWARGS,
+        )
+        return (out or "").strip()
+    except Exception:
+        return ""
+
 # ─── Power config (mutable, guarded by a lock) ────────────────────────────────
 _power_lock = threading.Lock()
 _power_config = {"rate_eur_per_kwh": 0.35}   # German avg; user-editable
@@ -97,21 +115,18 @@ def _sample_watts_windows():
     Returns (None, ...) when no reliable telemetry exists.
     """
     # 1) Try battery discharge rate via WMI (available on many laptops).
-    try:
-        cmd = [
-            "powershell",
-            "-NoProfile",
-            "-Command",
-            "(Get-CimInstance -Namespace root/wmi -ClassName BatteryStatus "
-            "-ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty DischargeRate)"
-        ]
-        out = subprocess.check_output(cmd, text=True, timeout=1.5).strip()
-        if out:
+    out = _run_powershell(
+        "(Get-CimInstance -Namespace root/wmi -ClassName BatteryStatus "
+        "-ErrorAction SilentlyContinue | "
+        "Measure-Object -Property DischargeRate -Sum).Sum"
+    )
+    if out:
+        try:
             mw = int(float(out))
             if mw > 0:
                 return round(mw / 1000.0, 1), "battery_discharge_rate"
-    except Exception:
-        pass
+        except ValueError:
+            pass
 
     b = None
     try:
@@ -158,21 +173,18 @@ def _get_windows_full_charge_capacity_mwh():
         return cached
 
     cap_mwh = None
-    try:
-        cmd = [
-            "powershell",
-            "-NoProfile",
-            "-Command",
-            "(Get-CimInstance -Namespace root/wmi -ClassName BatteryFullChargedCapacity "
-            "-ErrorAction SilentlyContinue | Measure-Object -Property FullChargedCapacity -Sum).Sum"
-        ]
-        out = subprocess.check_output(cmd, text=True, timeout=1.5).strip()
-        if out:
+    out = _run_powershell(
+        "(Get-CimInstance -Namespace root/wmi -ClassName BatteryFullChargedCapacity "
+        "-ErrorAction SilentlyContinue | "
+        "Measure-Object -Property FullChargedCapacity -Sum).Sum"
+    )
+    if out:
+        try:
             val = int(float(out))
             if val > 0:
                 cap_mwh = val
-    except Exception:
-        cap_mwh = None
+        except ValueError:
+            pass
 
     with _win_batt_lock:
         _win_batt_state["full_charge_mwh"] = cap_mwh
@@ -182,41 +194,40 @@ def _get_windows_full_charge_capacity_mwh():
 def _get_windows_temperatures():
     """Return psutil-compatible temperature payload using Windows WMI when available."""
     temps = {}
+    out = _run_powershell(
+        "Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature "
+        "-ErrorAction SilentlyContinue | Select-Object InstanceName,CurrentTemperature "
+        "| ConvertTo-Json -Compress"
+    )
+    if not out:
+        return temps
     try:
-        cmd = [
-            "powershell",
-            "-NoProfile",
-            "-Command",
-            "Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature "
-            "-ErrorAction SilentlyContinue | Select-Object InstanceName,CurrentTemperature "
-            "| ConvertTo-Json -Compress"
-        ]
-        out = subprocess.check_output(cmd, text=True, timeout=1.5).strip()
-        if not out:
-            return temps
-
         payload = json.loads(out)
-        rows = payload if isinstance(payload, list) else [payload]
-        entries = []
-        for row in rows:
-            cur = row.get("CurrentTemperature")
-            if cur is None:
-                continue
-            # WMI temp is in tenths of Kelvin.
-            celsius = (float(cur) / 10.0) - 273.15
-            if celsius < -30 or celsius > 130:
-                continue
-            entries.append({
-                "label": row.get("InstanceName") or "acpi",
-                "current": round(celsius, 1),
-                "high": None,
-                "critical": None,
-            })
+    except json.JSONDecodeError:
+        return temps
 
-        if entries:
-            temps["acpi"] = entries
-    except Exception:
-        pass
+    rows = payload if isinstance(payload, list) else [payload]
+    entries = []
+    for row in rows:
+        cur = row.get("CurrentTemperature")
+        if cur is None:
+            continue
+        # WMI temp is in tenths of Kelvin.
+        try:
+            celsius = (float(cur) / 10.0) - 273.15
+        except (TypeError, ValueError):
+            continue
+        if celsius < -30 or celsius > 130:
+            continue
+        entries.append({
+            "label": row.get("InstanceName") or "acpi",
+            "current": round(celsius, 1),
+            "high": None,
+            "critical": None,
+        })
+
+    if entries:
+        temps["acpi"] = entries
     return temps
 
 
@@ -296,7 +307,8 @@ def get_system_stats():
                 "fstype": p.fstype, "total": usage.total,
                 "used": usage.used, "free": usage.free, "percent": usage.percent,
             })
-        except PermissionError:
+        except (PermissionError, OSError):
+            # OSError covers Windows empty CD/DVD drives and removed mounts.
             pass
 
     net = psutil.net_io_counters(pernic=True)
@@ -412,7 +424,6 @@ def get_system_stats():
     services = []
     if platform.system() == "Linux":
         try:
-            import subprocess
             out = subprocess.check_output(
                 ["systemctl", "list-units", "--type=service", "--no-pager",
                  "--no-legend", "--all"],
@@ -542,8 +553,11 @@ if __name__ == '__main__':
     t.start()
     print("Power sampler thread started.")
 
-    host = '0.0.0.0'
-    port = 3200
+    host = os.environ.get('SYSMON_HOST', '0.0.0.0')
+    try:
+        port = int(os.environ.get('SYSMON_PORT', '3200'))
+    except ValueError:
+        port = 3200
     server = ThreadingHTTPServer((host, port), Handler)
     print(f"SysMon running at http://{socket.gethostname()}:{port}")
     print(f"Also reachable at http://0.0.0.0:{port}")
